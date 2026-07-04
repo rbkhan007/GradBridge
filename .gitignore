@@ -1,0 +1,78 @@
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js
+.next/
+out/
+
+# Production
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Database
+db/*.db
+db/*.db-journal
+db/*.sqlite
+db/*.sqlite3
+prisma/db/*.db
+prisma/db/*.db-journal
+
+# Debug logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
+.z-ai-config
+
+# Vercel
+.vercel/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Misc
+*.pem
+coverage/
+
+# Upload / download artifacts
+upload/
+download/
+tool-results/
+
+# Skills
+/skills/
+
+# Rust build artifacts
+rust-cli/target/
+
+# Dev artifacts
+worklog.md
+start-server.bat
+
+# RAG embeddings cache
+data/embeddings/

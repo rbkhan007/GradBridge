@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="gb-logo-grad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="50%" stop-color="#14b8a6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="url(#gb-logo-grad)"/>
+  <path d="M24 12L36 18L24 24L12 18L24 12Z" fill="white" fill-opacity="0.95"/>
+  <path d="M16 21V27C16 27 19.5 30 24 30C28.5 30 32 27 32 27V21" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-opacity="0.85"/>
+  <path d="M36 18V23" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.7"/>
+  <circle cx="36" cy="24.2" r="1.5" fill="white" fill-opacity="0.8"/>
+  <path d="M8 35H40" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 3" stroke-opacity="0.45"/>
+  <path d="M14 39l-4-3 4-3" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.5"/>
+  <path d="M34 39l4-3-4-3" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.5"/>
+  <circle cx="24" cy="36" r="1.5" fill="white" fill-opacity="0.6"/>
+</svg>

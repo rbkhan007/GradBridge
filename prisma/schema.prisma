@@ -1,0 +1,318 @@
+// GradBridge Prisma schema — Production PostgreSQL + pgvector edition.
+//
+// RULES APPLIED:
+//   1. RAG & Vector: VectorEmbedding uses VECTOR(1536), scoped by user_id
+//   2. Multi-tenancy: All user resources use ON DELETE CASCADE
+//   3. Agentic memory: SkillAudit for time-series, AgentTask for state machine
+//   4. Row-Level Security (RLS) enforced via migration SQL (see migrations/)
+//
+// For local SQLite development, run:
+//   Change provider to "sqlite", change VectorEmbedding.embedding to String?,
+//   and swap Unsupported("vector(1536)")? → String?
+//   Then run: npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── AUTH & USERS ───────────────────────────────────────────
+
+/// Auth account. Email is unique. Password stored as a scrypt hash.
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  // Relations — all CASCADE on delete for strict user isolation
+  profile      UserProfile?
+  conversations Conversation[]
+  plans        Plan[]
+  agentRuns    AgentRun[]
+  agentTasks   AgentTask[]
+  files        ProjectFile[]
+  commits      Commit[]
+  apiKey       UserApiKey?
+  dailyUsage   DailyUsage[]
+  ragFeedback  RagFeedback[]
+  vectorEmbeddings VectorEmbedding[]
+  skillAudits  SkillAudit[]
+}
+
+/// Per-user API keys for LLM providers. 1:1 with User.
+model UserApiKey {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  String   @default("openrouter")
+  apiKey    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Tracks daily free message usage per user.
+model DailyUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+// ─── USER PROFILE & MEMORY ──────────────────────────────────
+
+/// Career memory — 1:1 with User. Personalizes every agent response.
+model UserProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String   @default("Graduate")
+  university      String   @default("")
+  major           String   @default("Computer Science")
+  graduationYear  Int      @default(2026)
+  targetRole      String   @default("Software Engineer")
+  experienceLevel String   @default("Entry-level / Fresh Graduate")
+  skills          String   @default("[]") // JSON-encoded string[]
+  goals           String   @default("[]") // JSON-encoded string[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─── CONVERSATIONS & MESSAGES ───────────────────────────────
+
+/// A chat conversation (one per session / thread), scoped to a user.
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String    @default("New conversation")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+  runs      AgentRun[]
+  tasks     AgentTask[]
+
+  @@index([userId])
+}
+
+/// A single message in a conversation.
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String       // "user" | "assistant"
+  content        String
+  agentMode      String?      // "chat" | "plan" | "build" | "debug" | "optimize" | "career"
+  agentId        String?      // which sub-agent produced this
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+// ─── PROJECT FILES ──────────────────────────────────────────
+
+/// An indexed project file in a user's personal workspace.
+/// Each user gets their own copy (cloned from FileTemplate on first access).
+/// The (userId, path) pair is unique.
+model ProjectFile {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  path      String
+  language  String   @default("text")
+  content   String   @default("")
+  status    String   @default("clean") // "clean" | "modified" | "added" | "untracked"
+  indexedAt DateTime @default(now())
+
+  @@unique([userId, path])
+  @@index([userId])
+}
+
+/// Shared file templates — cloned into each user's workspace on first access.
+/// Global (not per-user).
+model FileTemplate {
+  id       String @id @default(cuid())
+  path     String @unique
+  language String @default("text")
+  content  String @default("")
+}
+
+// ─── COMMITS (VERSION HISTORY) ─────────────────────────────
+
+/// A git-like commit snapshot. When a user "commits", all their modified files
+/// are snapshotted into a Commit (paths + content as JSON).
+/// For massive codebases, store metadata here and offload large files to S3.
+model Commit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  filesJson String   // JSON: [{ path, content, language }] — metadata + snippets only
+  filesCount Int     @default(0)
+  // For large commits, store the S3 URL instead of inline content
+  s3Url     String?  // nullable — only set when files exceed inline threshold
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─── KNOWLEDGE BASE (SHARED RAG CORPUS) ────────────────────
+
+/// A curated knowledge-base entry — shared across all users.
+model KnowledgeEntry {
+  id        String   @id @default(cuid())
+  title     String
+  category  String   // "roadmap" | "interview" | "best-practice" | "career" | "system-design"
+  tags      String   @default("[]") // JSON-encoded string[]
+  content   String
+  source    String   @default("GradBridge Knowledge Base")
+  createdAt DateTime @default(now())
+
+  @@index([category])
+}
+
+// ─── PLANS ──────────────────────────────────────────────────
+
+/// A structured plan produced by the Plan agent, scoped to a user.
+model Plan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  goal      String
+  content   String   // markdown
+  status    String   @default("draft") // "draft" | "approved" | "applied"
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─── AGENT RUNS (AUDIT LOG) ────────────────────────────────
+
+/// Audit log of agent invocations, scoped to a user.
+model AgentRun {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  mode           String        // "chat" | "plan" | "build" | "debug" | "optimize" | "career"
+  agentId        String        // "plan" | "build" | "coder" | "reviewer" | "debugger" | "optimizer" | "mentor"
+  prompt         String
+  result         String
+  tokensUsed     Int           @default(0)
+  status         String        @default("success") // "success" | "failed" | "timeout"
+  createdAt      DateTime      @default(now())
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([mode])
+  @@index([agentId])
+  @@index([status])
+}
+
+// ─── AGENT TASKS (STATE MACHINE) ───────────────────────────
+
+/// Autonomous agent task with state machine for reliable execution.
+/// Tracks PENDING → RUNNING → SUCCESS/FAILED transitions.
+/// Prevents duplicate API calls if connections drop.
+model AgentTask {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  mode           String        // "chat" | "plan" | "build" | "debug" | "optimize" | "career"
+  agentId        String
+  prompt         String
+  result         String        @default("")
+  status         String        @default("pending") // "pending" | "running" | "success" | "failed" | "timeout"
+  retryCount     Int           @default(0)
+  maxRetries     Int           @default(3)
+  tokensUsed     Int           @default(0)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([agentId])
+  @@index([createdAt])
+}
+
+// ─── RAG FEEDBACK ───────────────────────────────────────────
+
+/// RAG feedback — tracks which results were useful for continuous improvement.
+model RagFeedback {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  query            String
+  resultsJson      String   // JSON-encoded string[] of result IDs returned
+  helpfulResultIds String   // JSON-encoded string[] of result IDs user found helpful
+  feedback         String   // "helpful" | "not_helpful" | "partial"
+  responseSnippet  String   @default("")
+  agentMode        String
+  agentId          String
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([query])
+  @@index([feedback])
+  @@index([createdAt])
+}
+
+// ─── VECTOR EMBEDDINGS (pgvector) ───────────────────────────
+
+/// Vector embeddings for hybrid RAG search (pgvector extension).
+///
+/// RULE: Always scope queries with WHERE user_id = $1.
+/// RULE: VECTOR(1536) matches OpenAI text-embedding-3-small / ada-002.
+/// RULE: Never run global vector search across all users.
+model VectorEmbedding {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType String   // "knowledge" | "file" | "conversation"
+  sourceId   String
+  content    String
+  embedding  Unsupported("vector(1536)")? // OpenAI text-embedding-3-small dimension
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, sourceType, sourceId])
+  @@index([userId])
+  @@index([sourceType, sourceId])
+}
+
+// ─── SKILL AUDIT (TIME-SERIES GROWTH TRACKING) ─────────────
+
+/// Time-series tracking of a student's coding proficiency.
+/// AI visualizes growth path by querying this table over time.
+model SkillAudit {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill       String   // "typescript" | "react" | "algorithms" | "system-design" | etc.
+  category    String   @default("technical") // "technical" | "soft" | "career"
+  score       Int      // 0-100 proficiency score
+  evidence    String   @default("") // JSON: { commitsReviewed, testsPassed, projectsCompleted }
+  notes       String   @default("") // AI-generated observation
+  auditedAt   DateTime @default(now())
+
+  @@unique([userId, skill, auditedAt])
+  @@index([userId])
+  @@index([skill])
+  @@index([auditedAt])
+}

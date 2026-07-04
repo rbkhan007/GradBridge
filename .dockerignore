@@ -1,0 +1,80 @@
+# =============================================================================
+# GradBridge — Docker build context ignore list.
+# =============================================================================
+# Keeps the build context small + prevents local artifacts (DB file, .next,
+# node_modules, secrets) from leaking into the image or invalidating the
+# Docker cache on every change.
+# =============================================================================
+
+# --- Node / Next.js ---
+node_modules
+.next
+out
+build
+dist
+
+# --- Bun ---
+bun.lockb
+# (keep bun.lock — needed for `bun install --frozen-lockfile`)
+
+# --- Local databases + uploads ---
+db/*.db
+db/*.db-journal
+db/*.sqlite
+db/*.sqlite3
+*.db
+*.db-journal
+upload
+download
+
+# --- Git + CI ---
+.git
+.gitignore
+.github
+.gitlab-ci.yml
+
+# --- Docker meta (don't ship inside the image) ---
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-entrypoint.sh
+
+# --- Editor / OS ---
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Env + secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Logs + runtime ---
+*.log
+dev.log
+server.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Test coverage / caches ---
+coverage
+.nyc_output
+.cache
+.eslintcache
+.turbo
+
+# --- Rust CLI edition (shipped separately; not part of the web image) ---
+rust-cli
+target
+
+# --- Examples / docs not needed at runtime ---
+examples
+AGENT.md
+worklog.md
+
+# --- Prisma migrations dir (we use `db push`, not migrate) ---
+prisma/migrations

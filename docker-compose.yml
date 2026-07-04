@@ -1,0 +1,134 @@
+# =============================================================================
+# GradBridge — production Docker Compose stack.
+# =============================================================================
+# Services:
+#   postgres       — primary database (PostgreSQL 16)
+#   redis          — cache + future session/queue backend (Redis 7)
+#   prisma-migrate — one-shot init container: runs `prisma db push` + seed
+#   web            — Next.js standalone production server
+#
+# Bring up the full stack:
+#   docker compose up -d --build
+#
+# The web service waits for prisma-migrate to complete successfully before
+# starting (depends_on.service_completed_successfully). Its entrypoint ALSO
+# runs `prisma db push` + seed idempotently, so it's safe even if you start
+# `web` without the migrator (e.g. `docker compose up web`).
+#
+# First-time use: after the stack is healthy, register a user via the web UI
+# at http://localhost:3000 (no demo user is seeded — auth is real).
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — primary database.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gradbridge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gradbridge}
+      POSTGRES_DB: ${POSTGRES_DB:-gradbridge}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gradbridge} -d ${POSTGRES_DB:-gradbridge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "5432:5432" # exposed for local debugging; remove in strict production
+    networks:
+      - gradbridge
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — cache + future session/queue backend.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - gradbridge
+
+  # ---------------------------------------------------------------------------
+  # prisma-migrate — one-shot init container.
+  # Runs `prisma db push` (creates/migrates the schema) + the seed script,
+  # then exits. The `web` service waits for this to complete successfully.
+  # ---------------------------------------------------------------------------
+  prisma-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gradbridge}:${POSTGRES_PASSWORD:-gradbridge}@postgres:5432/${POSTGRES_DB:-gradbridge}?schema=public
+      REDIS_URL: redis://redis:6379
+      GRADBRIDGE_SECRET: ${GRADBRIDGE_SECRET:-gradbridge-dev-secret-change-in-production}
+      NODE_ENV: production
+    # The migrator stage's CMD is ["migrate"] — the entrypoint runs migrations
+    # + seed and exits 0 on success.
+    restart: "no"
+    networks:
+      - gradbridge
+
+  # ---------------------------------------------------------------------------
+  # web — Next.js standalone production server.
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      prisma-migrate:
+        condition: service_completed_successfully
+    environment:
+      # Prisma connects to the `postgres` service on the internal network.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gradbridge}:${POSTGRES_PASSWORD:-gradbridge}@postgres:5432/${POSTGRES_DB:-gradbridge}?schema=public
+      REDIS_URL: redis://redis:6379
+      # Session-signing secret. OVERRIDE in production via .env or shell env.
+      # Generate with: openssl rand -hex 32
+      GRADBRIDGE_SECRET: ${GRADBRIDGE_SECRET:-gradbridge-dev-secret-change-in-production}
+      NODE_ENV: production
+      # LLM provider config (the web app's lib/llm.ts reads these for fallback).
+      GRADBRIDGE_LLM_PROVIDER: ${GRADBRIDGE_LLM_PROVIDER:-zai}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    ports:
+      - "3000:3000"
+    networks:
+      - gradbridge
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+
+networks:
+  gradbridge:
+    driver: bridge

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Type Check & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: check
+    env:
+      GRADBRIDGE_SECRET: ci-test-secret
+      DATABASE_URL: "file:./test.db"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bun run build
+
+  test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      GRADBRIDGE_SECRET: ci-test-secret
+      DATABASE_URL: "file:./test.db"
+      ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bun run dev &
+      - name: Wait for server
+        run: sleep 15
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python test.py
+
+  rust-cli:
+    name: Rust CLI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust-cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-cli
+      - run: cargo check
+      - run: cargo test

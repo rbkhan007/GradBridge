@@ -1,0 +1,258 @@
+// GradBridge Prisma schema — SQLite edition for local development.
+// This is a lightweight copy of schema.prisma for local dev/testing.
+//
+// To use: npx prisma db push --schema=prisma/schema.sqlite.prisma
+//         npx prisma generate --schema=prisma/schema.sqlite.prisma
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  profile      UserProfile?
+  conversations Conversation[]
+  plans        Plan[]
+  agentRuns    AgentRun[]
+  agentTasks   AgentTask[]
+  files        ProjectFile[]
+  commits      Commit[]
+  apiKey       UserApiKey?
+  dailyUsage   DailyUsage[]
+  ragFeedback  RagFeedback[]
+  vectorEmbeddings VectorEmbedding[]
+  skillAudits  SkillAudit[]
+}
+
+model UserApiKey {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  String   @default("openrouter")
+  apiKey    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DailyUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model UserProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String   @default("Graduate")
+  university      String   @default("")
+  major           String   @default("Computer Science")
+  graduationYear  Int      @default(2026)
+  targetRole      String   @default("Software Engineer")
+  experienceLevel String   @default("Entry-level / Fresh Graduate")
+  skills          String   @default("[]")
+  goals           String   @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String    @default("New conversation")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+  runs      AgentRun[]
+  tasks     AgentTask[]
+
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String
+  content        String
+  agentMode      String?
+  agentId        String?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+model ProjectFile {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  path      String
+  language  String   @default("text")
+  content   String   @default("")
+  status    String   @default("clean")
+  indexedAt DateTime @default(now())
+
+  @@unique([userId, path])
+  @@index([userId])
+}
+
+model FileTemplate {
+  id       String @id @default(cuid())
+  path     String @unique
+  language String @default("text")
+  content  String @default("")
+}
+
+model Commit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  filesJson String
+  filesCount Int     @default(0)
+  s3Url     String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model KnowledgeEntry {
+  id        String   @id @default(cuid())
+  title     String
+  category  String
+  tags      String   @default("[]")
+  content   String
+  source    String   @default("GradBridge Knowledge Base")
+  createdAt DateTime @default(now())
+
+  @@index([category])
+}
+
+model Plan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  goal      String
+  content   String
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AgentRun {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  mode           String
+  agentId        String
+  prompt         String
+  result         String
+  tokensUsed     Int           @default(0)
+  status         String        @default("success")
+  createdAt      DateTime      @default(now())
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([mode])
+  @@index([agentId])
+  @@index([status])
+}
+
+model AgentTask {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  mode           String
+  agentId        String
+  prompt         String
+  result         String        @default("")
+  status         String        @default("pending")
+  retryCount     Int           @default(0)
+  maxRetries     Int           @default(3)
+  tokensUsed     Int           @default(0)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([agentId])
+  @@index([createdAt])
+}
+
+model RagFeedback {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  query            String
+  resultsJson      String
+  helpfulResultIds String
+  feedback         String
+  responseSnippet  String   @default("")
+  agentMode        String
+  agentId          String
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([query])
+  @@index([feedback])
+  @@index([createdAt])
+}
+
+model VectorEmbedding {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType String
+  sourceId   String
+  content    String
+  embedding  String?  // SQLite: stored as JSON string
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, sourceType, sourceId])
+  @@index([userId])
+  @@index([sourceType, sourceId])
+}
+
+model SkillAudit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill     String
+  category  String   @default("technical")
+  score     Int
+  evidence  String   @default("")
+  notes     String   @default("")
+  auditedAt DateTime @default(now())
+
+  @@unique([userId, skill, auditedAt])
+  @@index([userId])
+  @@index([skill])
+  @@index([auditedAt])
+  @@index([userId, skill, auditedAt])
+}

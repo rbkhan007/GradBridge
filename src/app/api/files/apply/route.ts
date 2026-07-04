@@ -1,0 +1,56 @@
+// POST /api/files/apply — write approved content back to the user's file.
+// Marks the file as "modified" and updates indexedAt. User-scoped.
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { toFile } from "@/lib/serializers";
+import { requireUser, HttpError } from "@/lib/auth";
+
+async function handler(req: Request) {
+  const user = await requireUser(req);
+  let body: { path?: string; content?: string };
+  try {
+    body = (await req.json()) as { path?: string; content?: string };
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { path, content } = body;
+  if (!path || typeof content !== "string") {
+    return NextResponse.json(
+      { error: "path and content are required" },
+      { status: 400 },
+    );
+  }
+  if (content.length > 200_000) {
+    return NextResponse.json(
+      { error: "content too large (max 200k chars)" },
+      { status: 413 },
+    );
+  }
+
+  const existing = await db.projectFile.findFirst({
+    where: { userId: user.id, path },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
+  }
+
+  const updated = await db.projectFile.update({
+    where: { id: existing.id },
+    data: {
+      content,
+      status: "modified",
+      indexedAt: new Date(),
+    },
+  });
+  return NextResponse.json({ file: toFile(updated) });
+}
+
+export async function POST(req: Request) {
+  try {
+    return await handler(req);
+  } catch (err) {
+    if (err instanceof HttpError)
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    return NextResponse.json({ error: "Failed to apply file" }, { status: 500 });
+  }
+}

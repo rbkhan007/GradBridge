@@ -1,0 +1,646 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* GradBridge palette — emerald/teal developer-tool aesthetic.
+   No indigo/blue per design rules. */
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.002 160);
+  --foreground: oklch(0.18 0.01 170);
+  --card: oklch(0.995 0.001 160);
+  --card-foreground: oklch(0.18 0.01 170);
+  --popover: oklch(0.995 0.001 160);
+  --popover-foreground: oklch(0.18 0.01 170);
+  --primary: oklch(0.55 0.15 162);
+  --primary-foreground: oklch(0.99 0.002 160);
+  --secondary: oklch(0.95 0.012 165);
+  --secondary-foreground: oklch(0.22 0.02 165);
+  --muted: oklch(0.95 0.008 165);
+  --muted-foreground: oklch(0.4 0.02 165);
+  --accent: oklch(0.93 0.04 165);
+  --accent-foreground: oklch(0.22 0.03 162);
+  --destructive: oklch(0.55 0.22 27);
+  --border: oklch(0.86 0.01 165);
+  --input: oklch(0.88 0.01 165);
+  --ring: oklch(0.55 0.15 162);
+  --chart-1: oklch(0.55 0.15 162);
+  --chart-2: oklch(0.62 0.14 185);
+  --chart-3: oklch(0.7 0.16 85);
+  --chart-4: oklch(0.58 0.2 25);
+  --chart-5: oklch(0.52 0.18 300);
+  --sidebar: oklch(0.975 0.004 160);
+  --sidebar-foreground: oklch(0.18 0.01 170);
+  --sidebar-primary: oklch(0.55 0.15 162);
+  --sidebar-primary-foreground: oklch(0.99 0.002 160);
+  --sidebar-accent: oklch(0.93 0.04 165);
+  --sidebar-accent-foreground: oklch(0.22 0.03 162);
+  --sidebar-border: oklch(0.86 0.01 165);
+  --sidebar-ring: oklch(0.55 0.15 162);
+
+  /* GradBridge custom */
+  --gb-glow: oklch(0.55 0.15 162 / 0.3);
+  --gb-grid: oklch(0.18 0.01 170 / 0.05);
+  --gb-mesh-1: oklch(0.55 0.15 162 / 0.12);
+  --gb-mesh-2: oklch(0.62 0.14 185 / 0.1);
+  --gb-mesh-3: oklch(0.7 0.16 85 / 0.08);
+}
+
+.dark {
+  --background: oklch(0.15 0.008 170);
+  --foreground: oklch(0.96 0.005 160);
+  --card: oklch(0.19 0.012 170);
+  --card-foreground: oklch(0.96 0.005 160);
+  --popover: oklch(0.19 0.012 170);
+  --popover-foreground: oklch(0.96 0.005 160);
+  --primary: oklch(0.72 0.15 162);
+  --primary-foreground: oklch(0.14 0.01 170);
+  --secondary: oklch(0.24 0.015 170);
+  --secondary-foreground: oklch(0.96 0.005 160);
+  --muted: oklch(0.23 0.012 170);
+  --muted-foreground: oklch(0.68 0.015 165);
+  --accent: oklch(0.28 0.04 165);
+  --accent-foreground: oklch(0.95 0.01 162);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.72 0.15 162);
+  --chart-1: oklch(0.72 0.15 162);
+  --chart-2: oklch(0.74 0.13 185);
+  --chart-3: oklch(0.82 0.15 85);
+  --chart-4: oklch(0.7 0.2 25);
+  --chart-5: oklch(0.68 0.18 300);
+  --sidebar: oklch(0.17 0.01 170);
+  --sidebar-foreground: oklch(0.96 0.005 160);
+  --sidebar-primary: oklch(0.72 0.15 162);
+  --sidebar-primary-foreground: oklch(0.14 0.01 170);
+  --sidebar-accent: oklch(0.26 0.035 165);
+  --sidebar-accent-foreground: oklch(0.95 0.01 162);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.72 0.15 162);
+
+  --gb-glow: oklch(0.72 0.15 162 / 0.25);
+  --gb-grid: oklch(1 0 0 / 0.035);
+  --gb-mesh-1: oklch(0.72 0.15 162 / 0.22);
+  --gb-mesh-2: oklch(0.74 0.13 185 / 0.16);
+  --gb-mesh-3: oklch(0.82 0.15 85 / 0.12);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "cv01";
+    /* Blazing fast page transitions */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  /* Smooth scrolling for anchor nav */
+  html {
+    scroll-behavior: smooth;
+    /* Faster paint — avoid FOUC */
+    visibility: visible;
+  }
+  /* Ensure images load fast */
+  img {
+    content-visibility: auto;
+  }
+}
+
+@layer utilities {
+  /* ---------- Backdrops ---------- */
+
+  /* Dotted grid backdrop for hero / panels */
+  .gb-grid-bg {
+    background-image: radial-gradient(var(--gb-grid) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .gb-grid-lines {
+    background-image:
+      linear-gradient(to right, var(--gb-grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--gb-grid) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  /* Radial fade mask so grid backdrops fade at the edges */
+  .gb-mask-fade {
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 40%, transparent 100%);
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 40%, transparent 100%);
+  }
+
+  /* Glass card — uses muted tint so it's visible on light backgrounds too */
+  .gb-glass {
+    background: color-mix(in oklch, var(--card) 75%, var(--muted));
+    backdrop-filter: blur(12px) saturate(120%);
+    -webkit-backdrop-filter: blur(12px) saturate(120%);
+  }
+  .dark .gb-glass {
+    background: color-mix(in oklch, var(--card) 70%, transparent);
+  }
+  .gb-glass-strong {
+    background: color-mix(in oklch, var(--card) 85%, var(--muted));
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+  .dark .gb-glass-strong {
+    background: color-mix(in oklch, var(--card) 85%, transparent);
+  }
+
+  /* Gradient text — use -webkit-text-fill-color: transparent for robust
+     cross-browser clipping. These MUST sit outside @layer so they win
+     over Tailwind's text-color utilities when combined on the same element. */
+  .gb-text-gradient {
+    background-image: linear-gradient(
+      120deg,
+      var(--primary),
+      oklch(0.74 0.13 185),
+      oklch(0.82 0.15 85)
+    ) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    color: transparent !important;
+  }
+
+  /* Animated gradient text (slow hue shift) */
+  .gb-text-gradient-anim {
+    background-image: linear-gradient(
+      120deg,
+      var(--primary),
+      oklch(0.74 0.13 185),
+      oklch(0.82 0.15 85),
+      var(--primary)
+    ) !important;
+    background-size: 300% 100% !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    color: transparent !important;
+    animation: gb-text-pan 8s ease-in-out infinite;
+  }
+
+  /* Soft glowing ring for active agent */
+  .gb-glow-ring {
+    box-shadow: 0 0 0 1px var(--ring), 0 0 24px -4px var(--gb-glow);
+  }
+  /* Stronger glow for CTAs */
+  .gb-glow-cta {
+    box-shadow: 0 8px 30px -8px var(--gb-glow), 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+
+  /* Animated gradient border (conic) */
+  .gb-border-anim {
+    position: relative;
+    background-clip: padding-box;
+  }
+  .gb-border-anim::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--gb-angle, 0deg),
+      transparent 0deg,
+      var(--primary) 60deg,
+      oklch(0.74 0.13 185) 120deg,
+      transparent 180deg,
+      transparent 360deg
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: gb-border-spin 4s linear infinite;
+    pointer-events: none;
+  }
+
+  /* ---------- Custom scrollbar ---------- */
+  .gb-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
+  }
+  .gb-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .gb-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .gb-scroll::-webkit-scrollbar-thumb {
+    background-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+    border-radius: 9999px;
+  }
+  .gb-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+  }
+
+  /* ---------- Markdown content styling ---------- */
+  .gb-prose {
+    @apply text-sm leading-relaxed;
+  }
+  .gb-prose h1 { @apply text-lg font-semibold mt-4 mb-2; }
+  .gb-prose h2 { @apply text-base font-semibold mt-4 mb-2; }
+  .gb-prose h3 { @apply text-sm font-semibold mt-3 mb-1.5; }
+  .gb-prose p { @apply my-2; }
+  .gb-prose ul { @apply list-disc pl-5 my-2 space-y-1; }
+  .gb-prose ol { @apply list-decimal pl-5 my-2 space-y-1; }
+  .gb-prose li { @apply leading-relaxed; }
+  .gb-prose code {
+    @apply font-mono text-[0.85em] px-1.5 py-0.5 rounded-md bg-muted text-foreground;
+  }
+  .gb-prose pre {
+    @apply my-3 rounded-lg overflow-hidden border border-border;
+  }
+  .gb-prose pre code {
+    @apply bg-transparent p-0 text-[0.8rem] block;
+  }
+  .gb-prose blockquote {
+    @apply border-l-2 border-primary/50 pl-3 my-2 text-muted-foreground italic;
+  }
+  .gb-prose a { @apply text-primary underline underline-offset-2; }
+  .gb-prose table { @apply my-3 w-full text-xs; }
+  .gb-prose th, .gb-prose td { @apply border border-border px-2 py-1 text-left; }
+  .gb-prose hr { @apply my-4 border-border; }
+
+  /* ---------- Keyframe animations ---------- */
+
+  /* Thinking dot pulse */
+  @keyframes gb-pulse-dot {
+    0%, 100% { opacity: 0.4; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.1); }
+  }
+  .gb-thinking-dot {
+    animation: gb-pulse-dot 1.2s ease-in-out infinite;
+  }
+
+  /* Shimmer */
+  @keyframes gb-shimmer {
+    100% { transform: translateX(100%); }
+  }
+  .gb-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .gb-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklch, var(--primary) 12%, transparent),
+      transparent
+    );
+    animation: gb-shimmer 1.6s infinite;
+  }
+
+  /* Logo beam draw */
+  @keyframes gb-beam {
+    0% { stroke-dashoffset: 24; opacity: 0.2; }
+    50% { stroke-dashoffset: 0; opacity: 0.8; }
+    100% { stroke-dashoffset: -24; opacity: 0.2; }
+  }
+  .gb-logo-beam {
+    stroke-dasharray: 4 3;
+    animation: gb-beam 2.4s ease-in-out infinite;
+  }
+
+  /* Logo pulse ring */
+  @keyframes gb-logo-pulse {
+    0%, 100% { stroke-opacity: 0.15; }
+    50% { stroke-opacity: 0.35; }
+  }
+  .gb-logo-pulse-ring {
+    animation: gb-logo-pulse 3s ease-in-out infinite;
+  }
+
+  /* Logo code brackets morph */
+  @keyframes gb-logo-bracket {
+    0%, 40% { opacity: 0; transform: translateX(-3px); }
+    100% { opacity: 0.5; transform: translateX(0); }
+  }
+  .gb-logo-bracket-l { animation: gb-logo-bracket 3s ease-in-out infinite; }
+  .gb-logo-bracket-r { animation: gb-logo-bracket 3s ease-in-out infinite 0.15s; }
+
+  /* Logo center dot pulse */
+  @keyframes gb-logo-dot-pulse {
+    0%, 100% { fill-opacity: 0.4; }
+    50% { fill-opacity: 0.8; }
+  }
+  .gb-logo-dot { animation: gb-logo-dot-pulse 1.8s ease-in-out infinite; }
+
+  /* Flow node glow breathing */
+  @keyframes gb-node-breathe {
+    0%, 100% { transform: scale(0.92); opacity: 0.5; }
+    50% { transform: scale(1.08); opacity: 0.9; }
+  }
+  .gb-node-glow {
+    transform-origin: center;
+    animation: gb-node-breathe 3s ease-in-out infinite;
+  }
+  /* Node ring slow rotate */
+  @keyframes gb-node-rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .gb-node-ring {
+    transform-origin: center;
+    animation: gb-node-rotate 18s linear infinite;
+  }
+
+  /* Flow traveling dots */
+  .gb-flow-dot-1, .gb-flow-dot-2, .gb-flow-dot-3 {
+    filter: drop-shadow(0 0 4px var(--primary));
+  }
+
+  /* Flow label fade-in (set once visible) */
+  .gb-flow-label {
+    font-family: var(--font-geist-sans);
+  }
+
+  /* Agent orb pulse */
+  @keyframes gb-orb-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.1; }
+    50% { transform: scale(1.25); opacity: 0.25; }
+  }
+  .gb-orb-pulse {
+    animation: gb-orb-pulse 2.6s ease-in-out infinite;
+  }
+
+  /* Gradient mesh blobs (slow drift) */
+  .gb-mesh-blob {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(80px);
+    opacity: 0.7;
+  }
+  .gb-mesh-blob-1 {
+    width: 28rem;
+    height: 28rem;
+    background: var(--gb-mesh-1);
+    top: -8rem;
+    left: -6rem;
+    animation: gb-blob-drift-1 18s ease-in-out infinite;
+  }
+  .gb-mesh-blob-2 {
+    width: 22rem;
+    height: 22rem;
+    background: var(--gb-mesh-2);
+    top: 30%;
+    right: -6rem;
+    animation: gb-blob-drift-2 22s ease-in-out infinite;
+  }
+  .gb-mesh-blob-3 {
+    width: 18rem;
+    height: 18rem;
+    background: var(--gb-mesh-3);
+    bottom: -6rem;
+    left: 30%;
+    animation: gb-blob-drift-3 26s ease-in-out infinite;
+  }
+  @keyframes gb-blob-drift-1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(40px, 30px) scale(1.1); }
+    66% { transform: translate(-20px, 50px) scale(0.95); }
+  }
+  @keyframes gb-blob-drift-2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-50px, 40px) scale(1.08); }
+  }
+  @keyframes gb-blob-drift-3 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(30px, -40px) scale(1.12); }
+  }
+
+  /* Terminal line reveal */
+  @keyframes gb-term-line {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .gb-term-line {
+    animation: gb-term-line 0.5s ease-out both;
+  }
+  /* Terminal cursor blink */
+  @keyframes gb-cursor-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+  }
+  .gb-cursor {
+    animation: gb-cursor-blink 1s step-end infinite;
+  }
+
+  /* Bridge→code bracket morph */
+  @keyframes gb-bracket-in {
+    0%, 40% { opacity: 0; transform: translateX(-4px); }
+    100% { opacity: 1; transform: translateX(0); }
+  }
+  .gb-code-bracket-l { animation: gb-bracket-in 3s ease-in-out infinite; }
+  .gb-code-bracket-r { animation: gb-bracket-in 3s ease-in-out infinite 0.15s; }
+  @keyframes gb-code-dot-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  .gb-code-dot { animation: gb-code-dot-pulse 1.6s ease-in-out infinite; }
+
+  /* Stat ring draw */
+  @keyframes gb-stat-ring-draw {
+    from { stroke-dashoffset: 264; }
+    to { stroke-dashoffset: 66; }
+  }
+  .gb-stat-ring {
+    animation: gb-stat-ring-draw 1.4s ease-out forwards;
+  }
+
+  /* Floating chips */
+  @keyframes gb-float {
+    0%, 100% { transform: translateY(0) rotate(-1deg); }
+    50% { transform: translateY(-10px) rotate(1deg); }
+  }
+  .gb-float-chip {
+    animation: gb-float 6s ease-in-out infinite;
+  }
+
+  /* Sparkle pulse */
+  @keyframes gb-sparkle-pulse {
+    0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    50% { transform: scale(1.15) rotate(15deg); opacity: 0.85; }
+  }
+  .gb-sparkle-pulse {
+    animation: gb-sparkle-pulse 2.5s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  /* Shield check draw */
+  @keyframes gb-shield-check {
+    0% { stroke-dasharray: 0 20; stroke-dashoffset: 0; }
+    100% { stroke-dasharray: 20 0; stroke-dashoffset: 0; }
+  }
+  .gb-shield-check {
+    stroke-dasharray: 0 20;
+    animation: gb-shield-check 1.2s ease-out 0.5s forwards;
+  }
+
+  /* Rocket float */
+  @keyframes gb-rocket-float {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25% { transform: translateY(-3px) rotate(2deg); }
+    75% { transform: translateY(2px) rotate(-1deg); }
+  }
+  .gb-rocket-float {
+    animation: gb-rocket-float 4s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  /* Brain pulse lines */
+  @keyframes gb-brain-pulse {
+    0%, 100% { stroke-opacity: 0.6; stroke-width: 1.2; }
+    50% { stroke-opacity: 1; stroke-width: 1.8; }
+  }
+  .gb-brain-pulse {
+    animation: gb-brain-pulse 2s ease-in-out infinite;
+  }
+
+  /* Gradient text pan */
+  @keyframes gb-text-pan {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  /* Animated conic border spin */
+  @keyframes gb-border-spin {
+    to { --gb-angle: 360deg; }
+  }
+  @property --gb-angle {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+  }
+
+  /* Slow rise-in for sections (used via framer-motion usually; CSS fallback) */
+  @keyframes gb-rise {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .gb-rise {
+    animation: gb-rise 0.6s ease-out both;
+  }
+}
+
+/* ---------- Reduced motion: disable all decorative animation ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .gb-flow-dot-1, .gb-flow-dot-2, .gb-flow-dot-3 { display: none; }
+}
+
+/* ---------- Blazing fast page transitions ---------- */
+@layer utilities {
+  /* Instant page transitions — 120ms max for snappy feel */
+  .gb-transition-page {
+    transition: opacity 120ms ease-out, transform 120ms ease-out;
+  }
+  /* Smooth view switching */
+  .gb-transition-view {
+    transition: opacity 150ms ease-out, transform 150ms ease-out;
+  }
+  /* Hover micro-interactions */
+  .gb-transition-hover {
+    transition: transform 120ms ease-out, box-shadow 200ms ease-out, border-color 200ms ease-out;
+  }
+  /* Skeleton loading shimmer */
+  .gb-skeleton {
+    position: relative;
+    overflow: hidden;
+    background: color-mix(in oklch, var(--muted) 60%, transparent);
+    border-radius: 0.5rem;
+  }
+  .gb-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklch, var(--primary) 8%, transparent),
+      transparent
+    );
+    animation: gb-shimmer 1.2s infinite;
+  }
+  /* Fast fade-in for content */
+  .gb-fade-in {
+    animation: gb-fade-in 200ms ease-out both;
+  }
+  @keyframes gb-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* Stagger children animations */
+  .gb-stagger > * {
+    animation: gb-fade-in 200ms ease-out both;
+  }
+  .gb-stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .gb-stagger > *:nth-child(2) { animation-delay: 30ms; }
+  .gb-stagger > *:nth-child(3) { animation-delay: 60ms; }
+  .gb-stagger > *:nth-child(4) { animation-delay: 90ms; }
+  .gb-stagger > *:nth-child(5) { animation-delay: 120ms; }
+  .gb-stagger > *:nth-child(6) { animation-delay: 150ms; }
+  .gb-stagger > *:nth-child(7) { animation-delay: 180ms; }
+  /* Content placeholder for fast perceived loading */
+  .gb-content-placeholder {
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
