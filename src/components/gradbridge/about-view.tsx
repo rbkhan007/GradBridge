@@ -31,9 +31,9 @@ const TEAM: TeamMember[] = [
     avatar: "RH",
     color: "from-emerald-500 to-teal-500",
     social: {
-      github: "https://github.com/rakibul Hasan",
-      linkedin: "https://linkedin.com/in/",
-      email: "rakibul@gradbridge.dev",
+      github: "https://github.com/rbkhan007",
+      linkedin: "https://linkedin.com/in/rbkhan007",
+      email: "rbkhan00009@gmail.com",
     },
   },
   {

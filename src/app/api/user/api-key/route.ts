@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, HttpError } from "@/lib/auth";
 
+/** Mask an API key: show only first 8 and last 4 characters. */
+function maskKey(key: string): string {
+  if (key.length <= 16) return "****";
+  return `${key.slice(0, 8)}${"*".repeat(key.length - 12)}${key.slice(-4)}`;
+}
+
 export async function GET(req: Request) {
   try {
     const user = await requireUser(req);
@@ -12,7 +18,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       hasKey: !!keyRow,
       provider: keyRow?.provider ?? null,
-      apiKey: keyRow?.apiKey ?? null,
+      apiKey: keyRow?.apiKey ? maskKey(keyRow.apiKey) : null,
     });
   } catch (err) {
     if (err instanceof HttpError)
@@ -33,7 +39,6 @@ export async function POST(req: Request) {
     const provider = body.provider ?? "openrouter";
     const apiKey = (body.apiKey ?? "").trim();
     if (!apiKey) {
-      // Delete the key if empty string is sent.
       await db.userApiKey.deleteMany({ where: { userId: user.id } });
       return NextResponse.json({ success: true, hasKey: false });
     }
