@@ -57,7 +57,11 @@ class HttpClient:
     ):
         """Send an HTTP request. Returns (status_code, response_dict, raw_body)."""
         url = f"{self.base_url}{path}"
-        req_headers = {"Content-Type": "application/json"}
+        req_headers = {
+            "Content-Type": "application/json",
+            "Origin": self.base_url,
+            "Referer": f"{self.base_url}/",
+        }
         if headers:
             req_headers.update(headers)
 
@@ -208,7 +212,7 @@ class TestSuite:
         # Not logged in — should be null
         status, body, _ = self.client.get("/api/auth/get-session")
         self.assert_status("GET /api/auth/get-session unauthenticated — 200", status, 200, body)
-        self.check("Session is null when unauthenticated", body is not None and body.get("data", {}).get("user") is None)
+        self.check("Session is null when unauthenticated", body is None or body.get("user") is None)
 
     def test_auth_signin_wrong_password(self):
         print("\n  Testing Auth — Sign In Wrong Password...")
@@ -233,7 +237,7 @@ class TestSuite:
         if not self.authenticated:
             self.check("POST /api/auth/sign-out — skipped (not authenticated)", True, "no session to sign out")
             return
-        status, _, _ = self.client.post("/api/auth/sign-out")
+        status, _, _ = self.client.post("/api/auth/sign-out", {})
         self.assert_status("POST /api/auth/sign-out — 200", status, 200)
         if status == 200:
             self.authenticated = False
@@ -243,33 +247,46 @@ class TestSuite:
     # -----------------------------------------------------------------------
 
     def _ensure_auth(self):
-        """Re-authenticate via Neon Auth sign-in proxy."""
+        """Re-authenticate via Neon Auth sign-in proxy only if needed."""
+        if self.authenticated:
+            # Quick check if session is still valid
+            status, body, _ = self.client.get("/api/auth/get-session")
+            if status == 200 and body and (body.get("user") if isinstance(body, dict) else body):
+                return
         self.client.clear_cookies()
-        status, _, _ = self.client.post("/api/auth/sign-in/email", {
+        status, body, _ = self.client.post("/api/auth/sign-in/email", {
             "email": TEST_EMAIL,
             "password": TEST_PASSWORD,
         })
         if status == 200:
             self.authenticated = True
             return
+        if self.verbose:
+            print(f"\n  [debug] _ensure_auth sign-in failed: status={status}, body={body}")
         # Try registering first
-        reg_status, _, _ = self.client.post("/api/auth/register", {
+        reg_status, reg_body, _ = self.client.post("/api/auth/register", {
             "name": TEST_NAME,
             "email": TEST_EMAIL,
             "password": TEST_PASSWORD,
         })
+        if self.verbose:
+            print(f"  [debug] _ensure_auth register: status={reg_status}, body={reg_body}")
         if reg_status == 201:
             self.client.clear_cookies()
-            status, _, _ = self.client.post("/api/auth/sign-in/email", {
+            status, body, _ = self.client.post("/api/auth/sign-in/email", {
                 "email": TEST_EMAIL,
                 "password": TEST_PASSWORD,
             })
+            if self.verbose:
+                print(f"  [debug] _ensure_auth re-signin: status={status}, body={body}")
             self.authenticated = status == 200
         elif reg_status == 409:
-            status, _, _ = self.client.post("/api/auth/sign-in/email", {
+            status, body, _ = self.client.post("/api/auth/sign-in/email", {
                 "email": TEST_EMAIL,
                 "password": TEST_PASSWORD,
             })
+            if self.verbose:
+                print(f"  [debug] _ensure_auth re-signin (409): status={status}, body={body}")
             self.authenticated = status == 200
 
     def test_agents(self):
@@ -565,7 +582,6 @@ class TestSuite:
         self.test_memory()
         self.test_memory_update()
         self.test_memory_validation()
-        self.test_unauthenticated_access()
 
         self.test_chat()
         self.test_chat_validation()
@@ -582,6 +598,8 @@ class TestSuite:
         self.test_commit_create()
 
         self.test_chat_stream()
+
+        self.test_unauthenticated_access()
 
         self.test_invalid_json()
         self.test_nonexistent_endpoint()

@@ -28,16 +28,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Password must be 8-128 characters.", field: "password" }, { status: 400 });
   }
 
-  // Create user via Neon Auth.
-  // The Neon Auth server SDK forwards the request upstream. It reads the
-  // Origin/Referer from the incoming request context; when neither is present
-  // (e.g. headless clients) we provide emailRedirectTo as an absolute URL
-  // fallback.
   const cbOrigin =
     process.env.NEXT_PUBLIC_APP_URL ||
     (process.env.VERCEL_ENV === "production"
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || "grad-bridge-beta.vercel.app"}`
       : `http://${req.headers.get("host") || "localhost:3000"}`);
+
   const { data: signUpData, error: signUpError } = await (auth.signUp.email as any)({
     name,
     email,
@@ -48,7 +44,8 @@ export async function POST(req: Request) {
   });
 
   if (signUpError) {
-    if (signUpError.message?.toLowerCase().includes("already")) {
+    const msg = JSON.stringify(signUpError).toLowerCase();
+    if (msg.includes("already") || signUpError.status === 409) {
       return NextResponse.json({ error: "An account with this email already exists.", field: "email" }, { status: 409 });
     }
     console.error("[register] Neon Auth error:", signUpError);
@@ -61,7 +58,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not create your account. Please try again." }, { status: 500 });
   }
 
-  // Create local User + UserProfile in our DB using the same ID.
   let user: { id: string; name: string; email: string };
   try {
     user = await db.$transaction(async (tx) => {
