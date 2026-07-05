@@ -96,7 +96,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-gradbridge}:${POSTGRES_PASSWORD:-gradbridge}@postgres:5432/${POSTGRES_DB:-gradbridge}?schema=public
-      GRADBRIDGE_SECRET: ${GRADBRIDGE_SECRET:-change-me}
+      NEON_AUTH_BASE_URL: ${NEON_AUTH_BASE_URL:-}
+      NEON_AUTH_COOKIE_SECRET: ${NEON_AUTH_COOKIE_SECRET:-change-me}
       NODE_ENV: production
     restart: "no"
     networks:
@@ -121,7 +122,8 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-gradbridge}:${POSTGRES_PASSWORD:-gradbridge}@postgres:5432/${POSTGRES_DB:-gradbridge}?schema=public
       REDIS_URL: redis://redis:6379
-      GRADBRIDGE_SECRET: ${GRADBRIDGE_SECRET:-change-me}
+      NEON_AUTH_BASE_URL: ${NEON_AUTH_BASE_URL:-}
+      NEON_AUTH_COOKIE_SECRET: ${NEON_AUTH_COOKIE_SECRET:-change-me}
       NODE_ENV: production
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

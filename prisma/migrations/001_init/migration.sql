@@ -12,13 +12,14 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ─── USERS ──────────────────────────────────────────────────
 
+-- User identity managed by Neon Auth (neon_auth schema).
+-- This table holds app-specific data with a matching ID.
 CREATE TABLE "User" (
-    "id"           TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    "email"        TEXT NOT NULL UNIQUE,
-    "passwordHash" TEXT NOT NULL,
-    "name"         TEXT NOT NULL,
-    "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    "updatedAt"    TIMESTAMPTZ NOT NULL DEFAULT now()
+    "id"        TEXT NOT NULL PRIMARY KEY,
+    "email"     TEXT NOT NULL UNIQUE,
+    "name"      TEXT NOT NULL,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;

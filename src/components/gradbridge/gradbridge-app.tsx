@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { GraduationCap, Heart, Rocket } from "lucide-react";
+import { NeonAuthUIProvider } from "@neondatabase/auth-ui";
+import { authClient } from "@/lib/auth/client";
+import { toast } from "sonner";
 import { useGradBridge } from "@/lib/store";
 import type { AuthUser, ProjectFile, UserProfile } from "@/lib/types";
 import { TopBar } from "./topbar";
@@ -14,12 +17,13 @@ import { KnowledgeView } from "./knowledge-view";
 import { MemoryView } from "./memory-view";
 import { GuideView } from "./guide-view";
 import { SettingsView } from "./settings-view";
+import { CliView } from "./cli-view";
 import { LandingView } from "./landing-view";
-import { AuthView } from "./auth-view";
+import { AuthViewPage } from "./auth-view";
 import { AboutView } from "./about-view";
 import { DesignerCredit } from "./art";
 
-export function GradBridgeApp() {
+function GradBridgeAppInner() {
   const {
     authReady,
     authUser,
@@ -34,16 +38,19 @@ export function GradBridgeApp() {
     clearChat,
   } = useGradBridge();
 
-  // Bootstrap: resolve the session from the httpOnly cookie on mount.
+  // Bootstrap: resolve the session from Neon Auth on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const { data: session } = await authClient.getSession();
         if (cancelled) return;
-        if (res.ok) {
-          const data = (await res.json()) as { user: AuthUser };
-          setAuthUser(data.user);
+        if (session?.user) {
+          setAuthUser({
+            id: session.user.id,
+            name: session.user.name ?? "",
+            email: session.user.email ?? "",
+          });
           setRoute("app");
         } else {
           setAuthUser(null);
@@ -51,6 +58,7 @@ export function GradBridgeApp() {
         }
       } catch {
         if (cancelled) return;
+        toast.error("Failed to verify session", { description: "Check your connection and try refreshing." });
         setAuthUser(null);
         setRoute("landing");
       } finally {
@@ -76,7 +84,7 @@ export function GradBridgeApp() {
         if (memoryRes.profile) setProfile(memoryRes.profile);
       })
       .catch(() => {
-        // Non-fatal — views degrade gracefully with empty store.
+        toast.error("Could not load dashboard data");
       });
     return () => {
       cancelled = true;
@@ -117,8 +125,8 @@ export function GradBridgeApp() {
           exit={{ opacity: 0, y: -2 }}
           transition={{ duration: 0.15, ease: "easeOut" }}
         >
-          {route === "login" && <AuthView initialMode="login" />}
-          {route === "register" && <AuthView initialMode="register" />}
+          {route === "login" && <AuthViewPage initialMode="login" />}
+          {route === "register" && <AuthViewPage initialMode="register" />}
           {route === "guide" && <GuideView isPublic />}
           {route === "about" && <AboutView />}
           {(route === "landing" || route === "app") && <LandingView />}
@@ -130,7 +138,6 @@ export function GradBridgeApp() {
   // --- Authenticated: the dashboard shell ---
   return (
     <div className="relative flex min-h-screen flex-col">
-      {/* Dotted-grid backdrop */}
       <div className="gb-grid-bg pointer-events-none fixed inset-0 -z-10" aria-hidden />
 
       <TopBar />
@@ -153,6 +160,7 @@ export function GradBridgeApp() {
               {view === "knowledge" && <KnowledgeView />}
               {view === "memory" && <MemoryView />}
               {view === "guide" && <GuideView />}
+              {view === "cli" && <CliView />}
               {view === "settings" && <SettingsView />}
             </motion.div>
           </AnimatePresence>
@@ -196,5 +204,13 @@ function Footer() {
         <DesignerCredit />
       </div>
     </footer>
+  );
+}
+
+export function GradBridgeApp() {
+  return (
+    <NeonAuthUIProvider authClient={authClient}>
+      <GradBridgeAppInner />
+    </NeonAuthUIProvider>
   );
 }

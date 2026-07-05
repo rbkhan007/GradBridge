@@ -139,7 +139,7 @@ export function FilesView() {
 
   return (
     <div className="flex h-full flex-col">
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanelGroup orientation="horizontal" className="flex-1">
         <ResizablePanel defaultSize={28} minSize={20} maxSize={45}>
           {tree}
         </ResizablePanel>

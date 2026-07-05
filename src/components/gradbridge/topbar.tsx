@@ -14,6 +14,7 @@ import {
   Settings,
 } from "lucide-react";
 import { toast } from "sonner";
+import { authClient } from "@/lib/auth/client";
 import { useGradBridge } from "@/lib/store";
 import { AGENTS, MODE_META } from "@/lib/agents";
 import { Icon } from "./icon";
@@ -28,7 +29,7 @@ import { LogoMark } from "./art";
 export function TopBar() {
   const { mode, agentId, authUser, setSidebarOpen, setRoute, setView, setAuthUser, clearChat } =
     useGradBridge();
-  const { setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -56,14 +57,14 @@ export function TopBar() {
 
   const handleSignOut = async () => {
     setMenuOpen(false);
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } catch {
-      // ignore network errors — clear local state regardless
-    }
     clearChat();
     setAuthUser(null);
     setRoute("landing");
+    try {
+      await authClient.signOut();
+    } catch {
+      // Local state cleared; server cookie will expire eventually.
+    }
     toast.success("Signed out", { description: "See you soon!" });
   };
 
@@ -128,8 +129,7 @@ export function TopBar() {
       <button
         type="button"
         onClick={() => {
-          const isDark = document.documentElement.classList.contains("dark");
-          setTheme(isDark ? "light" : "dark");
+          setTheme(theme === "dark" ? "light" : "dark");
         }}
         className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground gb-transition-view hover:bg-accent hover:text-foreground"
         aria-label="Toggle theme"

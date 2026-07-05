@@ -21,7 +21,8 @@ export type View =
   | "knowledge"
   | "memory"
   | "guide"
-  | "settings";
+  | "settings"
+  | "cli";
 
 /** Top-level route (what the single `/` page renders). */
 export type Route = "landing" | "login" | "register" | "guide" | "about" | "app";

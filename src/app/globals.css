@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@neondatabase/auth-ui/tailwind";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -231,7 +232,7 @@
     box-shadow: 0 8px 30px -8px var(--gb-glow), 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent);
   }
 
-  /* Animated gradient border (conic) */
+  /* Gradient border (static) — emerald/teal/cyan flow */
   .gb-border-anim {
     position: relative;
     background-clip: padding-box;
@@ -242,18 +243,15 @@
     inset: 0;
     border-radius: inherit;
     padding: 1px;
-    background: conic-gradient(
-      from var(--gb-angle, 0deg),
-      transparent 0deg,
-      var(--primary) 60deg,
-      oklch(0.74 0.13 185) 120deg,
-      transparent 180deg,
-      transparent 360deg
+    background: linear-gradient(
+      135deg,
+      var(--primary),
+      oklch(0.74 0.13 185),
+      oklch(0.82 0.15 85)
     );
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: gb-border-spin 4s linear infinite;
     pointer-events: none;
   }
 
@@ -550,14 +548,9 @@
     50% { background-position: 100% 50%; }
   }
 
-  /* Animated conic border spin */
+  /* Spinning gradient hint via background-position shift */
   @keyframes gb-border-spin {
-    to { --gb-angle: 360deg; }
-  }
-  @property --gb-angle {
-    syntax: "<angle>";
-    inherits: false;
-    initial-value: 0deg;
+    to { background-position: 200% 0; }
   }
 
   /* Slow rise-in for sections (used via framer-motion usually; CSS fallback) */

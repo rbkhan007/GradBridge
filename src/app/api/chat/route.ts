@@ -177,9 +177,8 @@ export async function POST(req: Request) {
   } catch (err) {
     if (err instanceof HttpError)
       return NextResponse.json({ error: err.message }, { status: err.status });
-    const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: "Agent failed", detail: msg },
+      { error: "Agent failed" },
       { status: 500 },
     );
   }

@@ -25,6 +25,7 @@ const NAV: NavItem[] = [
   { view: "knowledge", label: "Knowledge", icon: "BookOpen" },
   { view: "memory", label: "Memory", icon: "Brain" },
   { view: "guide", label: "User Guide", icon: "Compass" },
+  { view: "cli", label: "CLI", icon: "Terminal" },
   { view: "settings", label: "Settings", icon: "Settings" },
 ];
 

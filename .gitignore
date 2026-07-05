@@ -83,3 +83,6 @@ cloudflared-*.json
 
 # Docker volumes (data is in containers, not in repo)
 docker-compose.override.yml
+
+.vercel
+.env*

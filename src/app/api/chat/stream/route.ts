@@ -258,9 +258,8 @@ export async function POST(req: Request) {
         "X-Accel-Buffering": "no",
       },
     });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return sseError(`Agent failed: ${msg}`);
+  } catch {
+    return sseError("Agent failed");
   }
 }
 

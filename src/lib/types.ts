@@ -7,6 +7,13 @@ export interface AuthUser {
   email: string;
 }
 
+/** Session user — same shape as AuthUser, used in server route handlers. */
+export interface SessionUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export type AgentMode =
   | "chat"
   | "plan"

@@ -17,13 +17,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── AUTH & USERS ───────────────────────────────────────────
+// ─── USERS ───────────────────────────────────────────────────
+//
+// User identity is managed by Neon Auth (stored in neon_auth schema).
+// This table holds app-specific data with a matching ID.
 
-/// Auth account. Email is unique. Password stored as a scrypt hash.
 model User {
-  id           String         @id @default(cuid())
+  id           String         @id
   email        String         @unique
-  passwordHash String
   name         String
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
