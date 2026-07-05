@@ -148,7 +148,7 @@ export function AboutView() {
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {TEAM.map((member, i) => (
             <motion.div
-              key={member.name}
+              key={`${member.name}-${i}`}
               initial={{ opacity: 0, y: 16 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-40px" }}

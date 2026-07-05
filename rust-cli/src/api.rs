@@ -124,24 +124,6 @@ pub struct PlanRequest<'a> {
     pub goal: &'a str,
 }
 
-#[derive(Debug, Serialize)]
-pub struct FileReadRequest<'a> {
-    pub path: &'a str,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffRequest<'a> {
-    pub file_path: &'a str,
-    pub instruction: &'a str,
-}
-
-#[derive(Debug, Serialize)]
-pub struct FileApplyRequest<'a> {
-    pub path: &'a str,
-    pub content: &'a str,
-}
-
 // ---------------------------------------------------------------------------
 // Response envelopes
 // ---------------------------------------------------------------------------
@@ -182,24 +164,6 @@ pub struct PlanResponse {
 #[derive(Debug, Deserialize)]
 pub struct FilesResponse {
     pub files: Vec<ProjectFile>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FileResponse {
-    pub file: ProjectFile,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffResponse {
-    pub file_path: String,
-    pub language: String,
-    pub original: String,
-    pub proposed: String,
-    pub diff: String,
-    pub summary: String,
-    #[serde(default)]
-    pub approved: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -394,10 +358,7 @@ impl GradBridgeApi {
         mode: AgentMode,
         agent_id: Option<AgentId>,
         conversation_id: Option<&str>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-        // First, probe the streaming endpoint with the same body. The web app's
-        // roadmap includes `/api/chat/stream` (SSE); until it ships, we fall
-        // back gracefully.
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<SseEvent>> + Send>>> {
         let agent_str = agent_id.map(|a| a.as_str());
         let body = ChatRequest {
             message,
@@ -414,17 +375,30 @@ impl GradBridgeApi {
 
         match probe {
             Ok(resp) if resp.status() == StatusCode::OK => {
-                // SSE stream — convert the byte stream into a parsed-event stream.
+                // SSE stream — SseDecoder parses typed events.
                 let byte_stream = resp.bytes_stream();
                 let sse = SseDecoder::new(byte_stream);
                 Ok(Box::pin(sse))
             }
             _ => {
-                // Fallback: call /api/chat once and emit the full content as a
-                // single chunk, then end.
+                // Fallback: call /api/chat once and emit the full content as
+                // a single Done event.
                 let full = self.chat(message, mode, agent_id, conversation_id).await?;
                 let content = full.message.content.clone();
-                let stream = tokio_stream::once(Ok(content));
+                let done = SseEvent::Done {
+                    message_id: full.message.id,
+                    tokens: full.tokens_used as i64,
+                    provider: "fallback".into(),
+                };
+                let meta = SseEvent::Meta {
+                    conversation_id: full.conversation_id,
+                    rag: full.rag_results,
+                    agent_id: agent_id.map(|a| a.as_str().to_string()),
+                    agent_name: None,
+                };
+                // Emit meta first, then delta with full content, then done.
+                let events = vec![Ok(meta), Ok(SseEvent::Delta(content)), Ok(done)];
+                let stream = tokio_stream::iter(events);
                 Ok(Box::pin(stream))
             }
         }
@@ -452,36 +426,6 @@ impl GradBridgeApi {
         Ok(parsed.files)
     }
 
-    /// POST /api/files { path } — read a single file by path.
-    pub async fn file(&self, path: &str) -> Result<ProjectFile> {
-        let body = FileReadRequest { path };
-        let req = self.request(Method::POST, "/api/files").json(&body);
-        let parsed: FileResponse = self.send_json(req).await?;
-        Ok(parsed.file)
-    }
-
-    /// POST /api/files/diff — generate a proposed file edit + unified diff.
-    pub async fn file_diff(
-        &self,
-        file_path: &str,
-        instruction: &str,
-    ) -> Result<DiffResponse> {
-        let body = DiffRequest {
-            file_path,
-            instruction,
-        };
-        let req = self.request(Method::POST, "/api/files/diff").json(&body);
-        self.send_json(req).await
-    }
-
-    /// POST /api/files/apply — write approved content back to a project file.
-    pub async fn file_apply(&self, path: &str, content: &str) -> Result<ProjectFile> {
-        let body = FileApplyRequest { path, content };
-        let req = self.request(Method::POST, "/api/files/apply").json(&body);
-        let parsed: FileResponse = self.send_json(req).await?;
-        Ok(parsed.file)
-    }
-
     // -----------------------------------------------------------------------
     // Memory (user profile)
     // -----------------------------------------------------------------------
@@ -489,13 +433,6 @@ impl GradBridgeApi {
     /// GET /api/memory — fetch the current user's profile.
     pub async fn memory(&self) -> Result<UserProfile> {
         let req = self.request(Method::GET, "/api/memory");
-        let parsed: MemoryResponse = self.send_json(req).await?;
-        Ok(parsed.profile)
-    }
-
-    /// POST /api/memory — upsert the current user's profile (partial update).
-    pub async fn update_memory(&self, profile: &UserProfile) -> Result<UserProfile> {
-        let req = self.request(Method::POST, "/api/memory").json(profile);
         let parsed: MemoryResponse = self.send_json(req).await?;
         Ok(parsed.profile)
     }
@@ -520,13 +457,45 @@ impl GradBridgeApi {
 // SSE decoding (for /api/chat/stream)
 // ---------------------------------------------------------------------------
 
-/// A minimal SSE decoder that turns a byte stream into a stream of `data:`
-/// payload strings. Ignores `event:`, `id:`, and `retry:` fields — the chat
-/// stream protocol only uses `data:` lines.
+/// A parsed SSE event from the web app's streaming chat endpoint.
+/// The protocol sends typed JSON events: meta, delta, done, error.
+#[derive(Debug, Clone)]
+pub enum SseEvent {
+    /// Stream metadata: conversation ID, RAG results, agent info.
+    Meta {
+        conversation_id: String,
+        rag: Vec<RagResult>,
+        agent_id: Option<String>,
+        agent_name: Option<String>,
+    },
+    /// A content delta chunk to append to the assistant's message.
+    Delta(String),
+    /// Stream complete — carries the persisted message metadata.
+    Done {
+        message_id: String,
+        tokens: i64,
+        provider: String,
+    },
+    /// A server-side error occurred.
+    Error(String),
+}
+
+/// A minimal SSE decoder that turns a byte stream into a stream of
+/// typed SseEvent values. Parses the web app's structured SSE protocol:
+///
+///   data: {"type":"meta","conversationId":"...","ragResults":[...],...}
+///   data: {"type":"delta","content":"..."}
+///   data: {"type":"done","messageId":"...","tokensUsed":...,"provider":"..."}
+///   data: {"type":"error","error":"..."}
+///   data: [DONE]
 struct SseDecoder<S> {
     inner: S,
     buffer: Vec<u8>,
     text_buf: String,
+    pending_rag: Vec<RagResult>,
+    pending_conversation_id: Option<String>,
+    pending_agent_id: Option<String>,
+    pending_agent_name: Option<String>,
 }
 
 impl<S> SseDecoder<S>
@@ -538,7 +507,87 @@ where
             inner,
             buffer: Vec::new(),
             text_buf: String::new(),
+            pending_rag: Vec::new(),
+            pending_conversation_id: None,
+            pending_agent_id: None,
+            pending_agent_name: None,
         }
+    }
+
+    /// Parse a single SSE data payload into an SseEvent.
+    fn parse_event(payload: &str) -> Option<SseEvent> {
+        if payload == "[DONE]" {
+            return None;
+        }
+        // Try parsing as the web app's typed JSON protocol.
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(payload) {
+            if let Some(typ) = val.get("type").and_then(|v| v.as_str()) {
+                return match typ {
+                    "meta" => {
+                        let cid = val
+                            .get("conversationId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let rag: Vec<RagResult> = val
+                            .get("ragResults")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default();
+                        let agent_id = val.get("agentId").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let agent_name = val
+                            .get("agentName")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        Some(SseEvent::Meta {
+                            conversation_id: cid,
+                            rag,
+                            agent_id,
+                            agent_name,
+                        })
+                    }
+                    "delta" => {
+                        let content = val
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        Some(SseEvent::Delta(content))
+                    }
+                    "done" => {
+                        let message_id = val
+                            .get("messageId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let tokens = val.get("tokensUsed").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let provider = val
+                            .get("provider")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        Some(SseEvent::Done {
+                            message_id,
+                            tokens,
+                            provider,
+                        })
+                    }
+                    "error" => {
+                        let error = val
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown error")
+                            .to_string();
+                        Some(SseEvent::Error(error))
+                    }
+                    _ => {
+                        // Unknown type — treat as delta content for backward compatibility.
+                        Some(SseEvent::Delta(payload.to_string()))
+                    }
+                };
+            }
+        }
+        // Fallback: not JSON or missing type field — treat as delta content.
+        Some(SseEvent::Delta(payload.to_string()))
     }
 }
 
@@ -546,7 +595,7 @@ impl<S> Stream for SseDecoder<S>
 where
     S: Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
 {
-    type Item = Result<String>;
+    type Item = Result<SseEvent>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -575,34 +624,52 @@ where
                 if data == "[DONE]" {
                     return std::task::Poll::Ready(None);
                 }
-                return std::task::Poll::Ready(Some(Ok(data)));
+
+                // Try to preserve the meta/agent context across events.
+                // A meta event may arrive before deltas — hold the pending
+                // metadata so downstream code doesn't get out-of-order events.
+                match Self::parse_event(&data) {
+                    Some(SseEvent::Meta { conversation_id, rag, agent_id, agent_name }) => {
+                        this.pending_conversation_id = Some(conversation_id);
+                        this.pending_rag = rag;
+                        this.pending_agent_id = agent_id;
+                        this.pending_agent_name = agent_name;
+                        // Don't emit Meta as a separate event — the downstream
+                        // handler will get the conversation_id from the Done event.
+                        // We store it for the next data event instead.
+                        continue;
+                    }
+                    Some(SseEvent::Delta(content)) => {
+                        return std::task::Poll::Ready(Some(Ok(SseEvent::Delta(content))));
+                    }
+                    Some(other) => {
+                        return std::task::Poll::Ready(Some(Ok(other)));
+                    }
+                    None => {
+                        return std::task::Poll::Ready(None);
+                    }
+                }
             }
 
             // 2. Otherwise, pull more bytes from the underlying HTTP stream.
             match std::pin::Pin::new(&mut this.inner).poll_next(cx) {
                 std::task::Poll::Ready(Some(Ok(chunk))) => {
-                    // Append raw bytes, then try to decode as much valid UTF-8
-                    // as possible, keeping any incomplete sequence in the buffer.
                     this.buffer.extend_from_slice(&chunk);
-                    // Find the last valid UTF-8 boundary.
                     let valid_len = match std::str::from_utf8(&this.buffer) {
                         Ok(_) => this.buffer.len(),
                         Err(e) => e.valid_up_to(),
                     };
                     if valid_len > 0 {
-                        // Safety: we just computed valid_up_to().
-                        let valid = unsafe { std::str::from_utf8_unchecked(&this.buffer[..valid_len]) };
+                        let valid =
+                            unsafe { std::str::from_utf8_unchecked(&this.buffer[..valid_len]) };
                         this.text_buf.push_str(valid);
                         this.buffer.drain(..valid_len);
                     }
-                    // Loop back to step 1 to try parsing with the new text.
                 }
                 std::task::Poll::Ready(Some(Err(e))) => {
                     return std::task::Poll::Ready(Some(Err(anyhow::Error::from(e))));
                 }
                 std::task::Poll::Ready(None) => {
-                    // Underlying stream ended. Flush any remaining buffered text.
-                    // Try to decode remaining bytes (they might be valid UTF-8).
                     if !this.buffer.is_empty() {
                         if let Ok(s) = std::str::from_utf8(&this.buffer) {
                             this.text_buf.push_str(s);
@@ -613,7 +680,9 @@ where
                         return std::task::Poll::Ready(None);
                     }
                     let remaining = std::mem::take(&mut this.text_buf);
-                    return std::task::Poll::Ready(Some(Ok(remaining)));
+                    return std::task::Poll::Ready(Some(Ok(
+                        Self::parse_event(&remaining).unwrap_or(SseEvent::Delta(remaining)),
+                    )));
                 }
                 std::task::Poll::Pending => {
                     return std::task::Poll::Pending;

@@ -48,9 +48,6 @@ Thumbs.db
 .claude/
 .z-ai-config
 
-# Vercel
-.vercel/
-
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
@@ -76,3 +73,13 @@ start-server.bat
 
 # RAG embeddings cache
 data/embeddings/
+
+# Vercel
+.vercel/
+
+# Cloudflare
+cloudflared/
+cloudflared-*.json
+
+# Docker volumes (data is in containers, not in repo)
+docker-compose.override.yml

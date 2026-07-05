@@ -173,6 +173,7 @@ export interface AgentTask {
 /** Skill audit — time-series career growth tracking. */
 export interface SkillAudit {
   id: string;
+  userId: string;
   skill: string;
   category: "technical" | "soft" | "career";
   score: number; // 0-100

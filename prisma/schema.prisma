@@ -6,10 +6,7 @@
 //   3. Agentic memory: SkillAudit for time-series, AgentTask for state machine
 //   4. Row-Level Security (RLS) enforced via migration SQL (see migrations/)
 //
-// For local SQLite development, run:
-//   Change provider to "sqlite", change VectorEmbedding.embedding to String?,
-//   and swap Unsupported("vector(1536)")? → String?
-//   Then run: npx prisma db push
+// For local SQLite development, use schema.sqlite.prisma instead.
 
 generator client {
   provider = "prisma-client-js"
@@ -281,6 +278,9 @@ model RagFeedback {
 /// RULE: Always scope queries with WHERE user_id = $1.
 /// RULE: VECTOR(1536) matches OpenAI text-embedding-3-small / ada-002.
 /// RULE: Never run global vector search across all users.
+///
+/// For production with pgvector: change String? to Unsupported("vector(1536)")?
+/// and run: CREATE EXTENSION IF NOT EXISTS vector;
 model VectorEmbedding {
   id         String   @id @default(cuid())
   userId     String
@@ -288,7 +288,7 @@ model VectorEmbedding {
   sourceType String   // "knowledge" | "file" | "conversation"
   sourceId   String
   content    String
-  embedding  Unsupported("vector(1536)")? // OpenAI text-embedding-3-small dimension
+  embedding  String?  // JSON array of floats. In production pgvector, the migration SQL creates vector(1536).
   createdAt  DateTime @default(now())
 
   @@unique([userId, sourceType, sourceId])

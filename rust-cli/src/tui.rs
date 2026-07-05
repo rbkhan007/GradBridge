@@ -59,7 +59,7 @@ use ratatui::Frame;
 use tokio::sync::mpsc;
 
 use crate::agents::{AgentId, AgentMode};
-use crate::api::{ChatMessage, GradBridgeApi, ProjectFile, RagResult};
+use crate::api::{ChatMessage, GradBridgeApi, ProjectFile, RagResult, SseEvent};
 
 // ---------------------------------------------------------------------------
 // App state
@@ -221,7 +221,6 @@ async fn stream_chat(
     conversation_id: Option<&str>,
     tx: mpsc::Sender<StreamEvent>,
 ) {
-    // Use the streaming endpoint (with built-in fallback to /api/chat).
     let stream = match api.chat_stream(message, mode, Some(agent), conversation_id).await {
         Ok(s) => s,
         Err(e) => {
@@ -232,12 +231,40 @@ async fn stream_chat(
 
     tokio::pin!(stream);
     let mut accumulated = String::new();
+    let mut meta_rag: Vec<RagResult> = Vec::new();
+    let mut meta_cid: Option<String> = None;
+    let mut final_tokens: i64 = 0;
+    let mut final_message_id: Option<String> = None;
+
     while let Some(chunk) = stream.next().await {
         match chunk {
-            Ok(text) => {
-                accumulated.push_str(&text);
-                let _ = tx.send(StreamEvent::Chunk(text)).await;
-            }
+            Ok(event) => match event {
+                SseEvent::Meta {
+                    conversation_id,
+                    rag,
+                    ..
+                } => {
+                    // Persist metadata for the final Done event.
+                    meta_rag = rag;
+                    meta_cid = Some(conversation_id);
+                }
+                SseEvent::Delta(content) => {
+                    accumulated.push_str(&content);
+                    let _ = tx.send(StreamEvent::Chunk(content)).await;
+                }
+                SseEvent::Done {
+                    message_id,
+                    tokens,
+                    ..
+                } => {
+                    final_tokens = tokens;
+                    final_message_id = Some(message_id);
+                }
+                SseEvent::Error(err) => {
+                    let _ = tx.send(StreamEvent::Error(err)).await;
+                    return;
+                }
+            },
             Err(e) => {
                 let _ = tx.send(StreamEvent::Error(format!("{:#}", e))).await;
                 return;
@@ -245,15 +272,10 @@ async fn stream_chat(
         }
     }
 
-    // The streaming endpoint (when available) returns SSE deltas. We've
-    // accumulated them into `accumulated`. To get the persisted ChatMessage +
-    // RAG context + token count, we DON'T have a separate "finalize" call in
-    // the current web API — so we synthesize a ChatMessage locally.
-    //
-    // When the web app ships `/api/chat/stream` with a final `done` event
-    // carrying the persisted message, this code will be updated to parse it.
-    let synthetic = ChatMessage {
-        id: format!("stream-{}", chrono::Utc::now().timestamp_millis()),
+    let message = ChatMessage {
+        id: final_message_id.unwrap_or_else(|| {
+            format!("stream-{}", chrono::Utc::now().timestamp_millis())
+        }),
         role: "assistant".into(),
         content: accumulated,
         agent_mode: Some(mode.as_str().into()),
@@ -262,10 +284,10 @@ async fn stream_chat(
     };
     let _ = tx
         .send(StreamEvent::Done {
-            message: synthetic,
-            rag: Vec::new(),
-            tokens: 0,
-            conversation_id: conversation_id.unwrap_or("").to_string(),
+            message,
+            rag: meta_rag,
+            tokens: final_tokens,
+            conversation_id: meta_cid.unwrap_or(conversation_id.unwrap_or("").to_string()),
         })
         .await;
 }

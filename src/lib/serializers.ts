@@ -7,6 +7,8 @@ import type {
   KnowledgeEntry,
   ProjectFile,
   UserProfile,
+  VectorEmbedding,
+  SkillAudit,
 } from "./types";
 
 function parseJsonArray(raw: string | null | undefined): string[] {
@@ -132,4 +134,57 @@ export function toConversation(
     updatedAt: c.updatedAt.toISOString(),
     messages: c.messages.map(toMessage),
   };
+}
+
+export function toVectorEmbedding(v: {
+  id: string;
+  userId: string;
+  sourceType: string;
+  sourceId: string;
+  content: string;
+  embedding: string | null;
+  createdAt: Date;
+}): VectorEmbedding {
+  return {
+    id: v.id,
+    userId: v.userId,
+    sourceType: v.sourceType as VectorEmbedding["sourceType"],
+    sourceId: v.sourceId,
+    content: v.content,
+    embedding: v.embedding ? parseEmbedding(v.embedding) : undefined,
+    createdAt: v.createdAt.toISOString(),
+  };
+}
+
+export function toSkillAudit(s: {
+  id: string;
+  userId: string;
+  skill: string;
+  category: string;
+  score: number;
+  evidence: string;
+  notes: string;
+  auditedAt: Date;
+}): SkillAudit {
+  return {
+    id: s.id,
+    userId: s.userId,
+    skill: s.skill,
+    category: (["technical", "soft", "career"].includes(s.category)
+      ? s.category
+      : "technical") as SkillAudit["category"],
+    score: s.score,
+    evidence: s.evidence,
+    notes: s.notes,
+    auditedAt: s.auditedAt.toISOString(),
+  };
+}
+
+function parseEmbedding(raw: string): number[] {
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.map(Number) : [];
+  } catch {
+    return [];
+  }
 }

@@ -47,11 +47,6 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 # --- Terminal colors (non-TUI mode output) ---
 colored = "2"
 
-# --- LLM orchestration (linked for parity with the spec; the CLI delegates to
-#     the web app by default, but langchain-rust is available for a future
-#     standalone mode that calls LLMs directly). ---
-langchain-rust = { version = "4", features = ["reqwest"], optional = true }
-
 # --- Misc ---
 chrono = { version = "0.4", features = ["serde"] }
 rpassword = "7"   # hidden password prompt for `gradbridge login`
@@ -59,8 +54,6 @@ bytes = "1"       # explicit dep (reqwest streams return bytes::Bytes)
 
 [features]
 default = []
-# Enable direct-LLM mode (calls LLMs from the CLI instead of the web app).
-direct-llm = ["dep:langchain-rust"]
 
 [profile.release]
 opt-level = 3

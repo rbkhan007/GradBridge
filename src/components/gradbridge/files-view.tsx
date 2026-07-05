@@ -80,7 +80,7 @@ export function FilesView() {
       .then((data: { files: ProjectFile[] }) => {
         if (data.files) setFiles(data.files);
       })
-      .catch(() => {});
+      .catch(() => toast.error("Failed to refresh files"));
   }, [setFiles]);
 
   const modifiedCount = files.filter(

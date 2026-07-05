@@ -1,8 +1,8 @@
-// Enhanced hybrid RAG search — combines BM25 + TF-IDF + EmbeddingFS.
+// Enhanced hybrid RAG search — combines BM25 + TF-IDF + Prisma VectorEmbedding.
 // This is a comprehensive retrieval pipeline:
 //   1. BM25 keyword scoring (fast, high recall)
 //   2. TF-IDF cosine similarity (semantic-lite)
-//   3. EmbeddingFS vector search (persistent, incremental)
+//   3. VectorEmbedding search via Prisma ORM (persistent, pgvector-ready)
 //   4. Score fusion + deduplication + context windowing
 import { db } from "./db";
 import type { RagResult } from "./types";
@@ -16,7 +16,6 @@ import {
   chunkText,
 } from "./rag/transformers";
 import { TfIdfEmbeddingProvider } from "./rag/embeddings";
-import { getEmbeddingFS, type EmbeddingRecord } from "./rag/embeddings-fs";
 import {
   buildRagContext,
   type ContextBuilderOptions,
@@ -174,26 +173,25 @@ export async function ragSearch(
     }
   }
 
-  // Also search EmbeddingFS for any additional results
+  // Also search VectorEmbedding table for additional results
   try {
-    const embeddingFS = getEmbeddingFS();
-    const fsResults = embeddingFS.searchByText(query, limit);
+    const vecResults = await searchVectorEmbeddings(query, userId);
     const existingIds = new Set(results.map((r) => r.id));
 
-    for (const fsr of fsResults) {
-      if (!existingIds.has(fsr.record.sourceId)) {
+    for (const vr of vecResults) {
+      if (!existingIds.has(vr.sourceId)) {
         results.push({
-          type: fsr.record.sourceType,
-          id: fsr.record.sourceId,
-          title: fsr.record.title,
-          snippet: fsr.record.snippet,
-          score: fsr.score * 0.8, // slight discount for FS-only results
-          source: fsr.record.metadata.source ?? fsr.record.sourceType,
+          type: vr.sourceType as "file" | "knowledge",
+          id: vr.sourceId,
+          title: vr.sourceType === "knowledge" ? vr.sourceId : vr.sourceId,
+          snippet: vr.content.slice(0, 300),
+          score: vr.score * 0.8,
+          source: vr.sourceType,
         });
       }
     }
   } catch {
-    // EmbeddingFS not available, skip
+    // VectorEmbedding table may not exist yet, skip
   }
 
   // Sort by score, take top results
@@ -214,15 +212,15 @@ export function formatRagContext(results: RagResult[]): string {
 }
 
 /* ============================================================
- * Index into EmbeddingFS — build persistent vector store
+ * VectorEmbedding — Prisma ORM backed vector storage
  * ============================================================ */
 
 /**
- * Index all knowledge entries and project files into EmbeddingFS.
+ * Index all knowledge entries and project files into VectorEmbedding table.
+ * Stores embeddings as JSON string arrays in PostgreSQL.
  * Call this on startup or when data changes.
  */
-export async function indexToEmbeddingFS(userId?: string): Promise<number> {
-  const embeddingFS = getEmbeddingFS();
+export async function indexToVectorStore(userId?: string): Promise<number> {
   let indexed = 0;
 
   // Index knowledge entries
@@ -232,55 +230,85 @@ export async function indexToEmbeddingFS(userId?: string): Promise<number> {
       try { return JSON.parse(k.tags) as string[]; } catch { return []; }
     })();
 
-    // Chunk long content
     const chunks = chunkText(k.content, 600, 100);
     for (const chunk of chunks) {
       const id = chunks.length === 1 ? k.id : `${k.id}_c${chunk.chunkIndex}`;
-      const record: EmbeddingRecord = {
-        id,
-        sourceType: "knowledge",
-        sourceId: k.id,
-        title: k.title,
-        snippet: chunk.text.slice(0, 300),
-        vector: [], // Will be populated by embedding provider
-        metadata: {
-          category: k.category,
-          tags,
-          source: k.source,
-          chunkIndex: chunk.chunkIndex,
-        },
-        updatedAt: new Date().toISOString(),
-      };
-      embeddingFS.upsert(record);
-      indexed++;
+      try {
+        await db.vectorEmbedding.upsert({
+          where: { userId_sourceType_sourceId: { userId: userId ?? "global", sourceType: "knowledge", sourceId: id } },
+          create: {
+            userId: userId ?? "global",
+            sourceType: "knowledge",
+            sourceId: id,
+            content: chunk.text.slice(0, 300),
+            embedding: JSON.stringify([]), // placeholder — populated by embedding provider
+          },
+          update: { content: chunk.text.slice(0, 300) },
+        });
+        indexed++;
+      } catch {
+        // Skip if VectorEmbedding table doesn't exist yet
+      }
     }
   }
 
-  // Index user's project files (or all if no userId specified)
+  // Index user's project files
   const where = userId ? { userId } : {};
   const files = await db.projectFile.findMany({ where, take: 200 });
   for (const f of files) {
     const chunks = chunkText(f.content, 600, 100);
     for (const chunk of chunks) {
       const id = chunks.length === 1 ? f.id : `${f.id}_c${chunk.chunkIndex}`;
-      const record: EmbeddingRecord = {
-        id,
-        sourceType: "file",
-        sourceId: f.id,
-        title: f.path,
-        snippet: chunk.text.slice(0, 300),
-        vector: [],
-        metadata: {
-          language: f.language,
-          status: f.status,
-          chunkIndex: chunk.chunkIndex,
-        },
-        updatedAt: new Date().toISOString(),
-      };
-      embeddingFS.upsert(record);
-      indexed++;
+      try {
+        await db.vectorEmbedding.upsert({
+          where: { userId_sourceType_sourceId: { userId: f.userId, sourceType: "file", sourceId: id } },
+          create: {
+            userId: f.userId,
+            sourceType: "file",
+            sourceId: id,
+            content: chunk.text.slice(0, 300),
+            embedding: JSON.stringify([]),
+          },
+          update: { content: chunk.text.slice(0, 300) },
+        });
+        indexed++;
+      } catch {
+        // Skip if VectorEmbedding table doesn't exist yet
+      }
     }
   }
 
   return indexed;
+}
+
+/**
+ * Search VectorEmbedding table for text matches.
+ * When pgvector is available in production, this can be upgraded to
+ * use vector distance queries via $queryRaw.
+ */
+async function searchVectorEmbeddings(
+  query: string,
+  userId?: string,
+): Promise<Array<{ sourceType: string; sourceId: string; content: string; score: number }>> {
+  const queryLower = query.toLowerCase();
+  const where: Record<string, unknown> = userId ? { userId } : {};
+
+  const embeddings = await db.vectorEmbedding.findMany({
+    where,
+    take: 100,
+    select: { sourceType: true, sourceId: true, content: true },
+  });
+
+  return embeddings
+    .map((e) => {
+      const contentLower = e.content.toLowerCase();
+      let score = 0;
+      for (const word of queryLower.split(/\s+/)) {
+        if (word.length > 2 && contentLower.includes(word)) score += 0.2;
+      }
+      return { sourceType: e.sourceType, sourceId: e.sourceId, content: e.content, score: Math.min(score, 1) };
+    })
+    .filter((r) => r.score > 0.1)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
 }

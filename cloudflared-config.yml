@@ -1,0 +1,11 @@
+tunnel: gradbridge
+credentials-file: /root/.cloudflared/credentials.json
+
+ingress:
+  - hostname: ${CLOUDFLARE_DOMAIN:-gradbridge.yourdomain.com}
+    service: http://web:3000
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+  - service: http_status:404

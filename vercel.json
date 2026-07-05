@@ -1,0 +1,41 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "bunx prisma generate --schema=prisma/schema.prisma && bun run build",
+  "installCommand": "bun install",
+  "outputDirectory": ".next",
+  "env": {
+    "GRADBRIDGE_SECRET": "@gradbridge-secret",
+    "DATABASE_URL": "@neon-database-url",
+    "ZAI_API_KEY": "@zai-api-key",
+    "OPENROUTER_API_KEY": "@openrouter-api-key",
+    "OPENROUTER_FALLBACK_KEY": "@openrouter-fallback-key",
+    "OPENROUTER_MODEL": "@openrouter-model",
+    "GROQ_API_KEY": "@groq-api-key",
+    "GROQ_MODEL": "@groq-model"
+  },
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "maxDuration": 60
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), interest-cohort=()" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ]
+}
