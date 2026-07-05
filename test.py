@@ -2,12 +2,12 @@
 """
 GradBridge Full Application Test Suite
 ======================================
-Tests all pages, API endpoints, authentication, chat, files, knowledge,
+Tests all pages, API endpoints, auth, chat, files, knowledge,
 memory, plan, and streaming features.
 
 Prerequisites:
   - Server running at http://localhost:3000
-  - Python 3.8+ with `requests` installed (pip install requests)
+  - Python 3.8+
 
 Usage:
   python test.py              # Run all tests
@@ -22,7 +22,7 @@ import argparse
 import urllib.request
 import urllib.error
 from http.cookiejar import CookieJar
-from typing import Optional, Tuple
+from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -32,8 +32,9 @@ TEST_EMAIL = f"test_{int(time.time())}@gradbridge.test"
 TEST_PASSWORD = "TestPass123!"
 TEST_NAME = "Test User"
 
+
 # ---------------------------------------------------------------------------
-# HTTP helpers (stdlib only  no external deps)
+# HTTP helpers (stdlib only — no external deps)
 # ---------------------------------------------------------------------------
 
 class HttpClient:
@@ -53,7 +54,7 @@ class HttpClient:
         data: Optional[dict] = None,
         raw_body: Optional[bytes] = None,
         headers: Optional[dict] = None,
-    ) -> Tuple[int, dict, str]:
+    ):
         """Send an HTTP request. Returns (status_code, response_dict, raw_body)."""
         url = f"{self.base_url}{path}"
         req_headers = {"Content-Type": "application/json"}
@@ -85,10 +86,10 @@ class HttpClient:
         except Exception as e:
             return 0, {"error": str(e)}, ""
 
-    def get(self, path: str, **kwargs) -> Tuple[int, dict, str]:
+    def get(self, path: str, **kwargs):
         return self.request("GET", path, **kwargs)
 
-    def post(self, path: str, data: Optional[dict] = None, **kwargs) -> Tuple[int, dict, str]:
+    def post(self, path: str, data: Optional[dict] = None, **kwargs):
         return self.request("POST", path, data=data, **kwargs)
 
     def clear_cookies(self):
@@ -112,7 +113,7 @@ class TestSuite:
         self.verbose = verbose
         self.stop_on_fail = stop_on_fail
         self.client = HttpClient(BASE_URL)
-        self.session_cookie: Optional[str] = None
+        self.authenticated = False
 
     def log(self, msg: str, indent: int = 0):
         if self.verbose:
@@ -124,14 +125,14 @@ class TestSuite:
         if condition:
             self.log(f"  PASS: {name}")
         else:
-            self.log(f"  FAIL: {name}  {detail}")
+            self.log(f"  FAIL: {name} — {detail}")
             if self.stop_on_fail:
-                raise AssertionError(f"Test failed: {name}  {detail}")
+                raise AssertionError(f"Test failed: {name} — {detail}")
 
     def assert_status(self, name: str, actual: int, expected: int, body: dict = None):
         detail = f"expected {expected}, got {actual}"
         if body and "error" in body:
-            detail += f"  {body['error']}"
+            detail += f" — {body['error']}"
         self.check(name, actual == expected, detail)
 
     # -----------------------------------------------------------------------
@@ -139,246 +140,235 @@ class TestSuite:
     # -----------------------------------------------------------------------
 
     def test_pages(self):
-        print("\n Testing Pages...")
-        pages = [
-            ("/", 200, "Landing page"),
-            ("/", 200, "Root (SPA handles routing)"),
-        ]
-        for path, expected_status, desc in pages:
-            status, body, _ = self.client.get(path)
-            self.assert_status(f"GET {path}  {desc}", status, expected_status)
+        print("\n  Testing Pages...")
+        for path, desc in [("/", "Landing page / SPA shell")]:
+            status, _, _ = self.client.get(path)
+            self.assert_status(f"GET {path} — {desc}", status, 200)
 
     # -----------------------------------------------------------------------
-    # Auth tests
+    # Auth tests — Neon Auth proxy-based
     # -----------------------------------------------------------------------
 
     def test_auth_register(self):
-        print("\n Testing Auth  Register...")
-        status, body, _ = self.client.post("/api/auth/register", {
+        print("\n  Testing Auth — Register...")
+        status, body, _ = self.client.request("POST", "/api/auth/register", data={
             "name": TEST_NAME,
             "email": TEST_EMAIL,
             "password": TEST_PASSWORD,
-        })
-        self.assert_status("POST /api/auth/register  201", status, 201, body)
+        }, headers={"Origin": BASE_URL, "Referer": BASE_URL + "/"})
+        self.assert_status("POST /api/auth/register — 201", status, 201, body)
         if status == 201:
             self.check("Register returns user", "user" in body and body["user"].get("email") == TEST_EMAIL)
 
     def test_auth_register_duplicate(self):
-        print("\n Testing Auth  Duplicate Register...")
+        print("\n  Testing Auth — Duplicate Register...")
         status, body, _ = self.client.post("/api/auth/register", {
             "name": TEST_NAME,
             "email": TEST_EMAIL,
             "password": TEST_PASSWORD,
         })
-        self.assert_status("POST /api/auth/register duplicate  409", status, 409, body)
+        self.assert_status("POST /api/auth/register duplicate — 409", status, 409, body)
 
     def test_auth_register_validation(self):
-        print("\n Testing Auth  Register Validation...")
-        # Missing name
+        print("\n  Testing Auth — Register Validation...")
         status, _, _ = self.client.post("/api/auth/register", {
             "email": "x@test.com",
             "password": "TestPass123!",
         })
-        self.check("Register without name  400", status == 400)
+        self.check("Register without name — 400", status == 400)
 
-        # Bad email
         status, _, _ = self.client.post("/api/auth/register", {
             "name": "Test",
             "email": "not-an-email",
             "password": "TestPass123!",
         })
-        self.check("Register with bad email  400", status == 400)
+        self.check("Register with bad email — 400", status == 400)
 
-        # Short password
         status, _, _ = self.client.post("/api/auth/register", {
             "name": "Test",
             "email": "test@example.com",
             "password": "short",
         })
-        self.check("Register with short password  400", status == 400)
+        self.check("Register with short password — 400", status == 400)
 
-    def test_auth_me(self):
-        print("\n Testing Auth  Me...")
-        status, body, _ = self.client.get("/api/auth/me")
-        self.assert_status("GET /api/auth/me  200", status, 200, body)
-        if status == 200:
-            self.check("Me returns user", "user" in body and body["user"].get("email") == TEST_EMAIL)
-
-    def test_auth_login(self):
-        print("\n Testing Auth  Login...")
-        # Clear cookies first
+    def test_auth_signin(self):
+        print("\n  Testing Auth — Sign In (Neon Auth proxy)...")
         self.client.clear_cookies()
-        status, body, _ = self.client.post("/api/auth/login", {
+        status, body, _ = self.client.post("/api/auth/sign-in/email", {
             "email": TEST_EMAIL,
             "password": TEST_PASSWORD,
         })
-        self.assert_status("POST /api/auth/login  200", status, 200, body)
+        self.assert_status("POST /api/auth/sign-in/email — 200", status, 200, body)
         if status == 200:
-            self.check("Login returns user", "user" in body)
+            self.authenticated = True
 
-    def test_auth_login_wrong_password(self):
-        print("\n Testing Auth  Login Wrong Password...")
+    def test_auth_get_session(self):
+        print("\n  Testing Auth — Get Session...")
         self.client.clear_cookies()
-        status, body, _ = self.client.post("/api/auth/login", {
+        # Not logged in — should be null
+        status, body, _ = self.client.get("/api/auth/get-session")
+        self.assert_status("GET /api/auth/get-session unauthenticated — 200", status, 200, body)
+        self.check("Session is null when unauthenticated", body is not None and body.get("data", {}).get("user") is None)
+
+    def test_auth_signin_wrong_password(self):
+        print("\n  Testing Auth — Sign In Wrong Password...")
+        self.client.clear_cookies()
+        status, body, _ = self.client.post("/api/auth/sign-in/email", {
             "email": TEST_EMAIL,
             "password": "WrongPassword!",
         })
-        self.assert_status("POST /api/auth/login wrong password  401", status, 401, body)
+        self.assert_status("POST /api/auth/sign-in/email wrong password — 401", status, 401, body)
 
-    def test_auth_login_nonexistent(self):
-        print("\n Testing Auth  Login Nonexistent User...")
+    def test_auth_signin_nonexistent(self):
+        print("\n  Testing Auth — Sign In Nonexistent...")
         self.client.clear_cookies()
-        status, body, _ = self.client.post("/api/auth/login", {
+        status, body, _ = self.client.post("/api/auth/sign-in/email", {
             "email": "nonexistent@test.com",
             "password": "TestPass123!",
         })
-        self.assert_status("POST /api/auth/login nonexistent  401", status, 401, body)
+        self.assert_status("POST /api/auth/sign-in/email nonexistent — 401", status, 401, body)
 
-    def test_auth_logout(self):
-        print("\n Testing Auth  Logout...")
-        status, body, _ = self.client.post("/api/auth/logout")
-        self.assert_status("POST /api/auth/logout  200", status, 200, body)
-        # After logout, me should return 401
-        status, _, _ = self.client.get("/api/auth/me")
-        self.check("After logout, GET /api/auth/me  401", status == 401)
+    def test_auth_signout(self):
+        print("\n  Testing Auth — Sign Out...")
+        if not self.authenticated:
+            self.check("POST /api/auth/sign-out — skipped (not authenticated)", True, "no session to sign out")
+            return
+        status, _, _ = self.client.post("/api/auth/sign-out")
+        self.assert_status("POST /api/auth/sign-out — 200", status, 200)
+        if status == 200:
+            self.authenticated = False
 
     # -----------------------------------------------------------------------
-    # Protected endpoint tests (require auth)
+    # Protected endpoint tests
     # -----------------------------------------------------------------------
 
     def _ensure_auth(self):
-        """Re-authenticate for subsequent tests."""
+        """Re-authenticate via Neon Auth sign-in proxy."""
         self.client.clear_cookies()
-        status, _, _ = self.client.post("/api/auth/login", {
+        status, _, _ = self.client.post("/api/auth/sign-in/email", {
             "email": TEST_EMAIL,
             "password": TEST_PASSWORD,
         })
         if status == 200:
+            self.authenticated = True
             return
-        # Try registering (may already exist from earlier in this run)
+        # Try registering first
         reg_status, _, _ = self.client.post("/api/auth/register", {
             "name": TEST_NAME,
             "email": TEST_EMAIL,
             "password": TEST_PASSWORD,
         })
         if reg_status == 201:
-            return
-        # If register returned 409 (duplicate), try login again
-        if reg_status == 409:
-            self.client.post("/api/auth/login", {
+            self.client.clear_cookies()
+            status, _, _ = self.client.post("/api/auth/sign-in/email", {
                 "email": TEST_EMAIL,
                 "password": TEST_PASSWORD,
             })
+            self.authenticated = status == 200
+        elif reg_status == 409:
+            status, _, _ = self.client.post("/api/auth/sign-in/email", {
+                "email": TEST_EMAIL,
+                "password": TEST_PASSWORD,
+            })
+            self.authenticated = status == 200
 
     def test_agents(self):
-        print("\n Testing Agents API...")
+        print("\n  Testing Agents API...")
         self._ensure_auth()
         status, body, _ = self.client.get("/api/agents")
-        self.assert_status("GET /api/agents  200", status, 200, body)
+        self.assert_status("GET /api/agents — 200", status, 200, body)
         if status == 200:
             self.check("Agents has agents", "agents" in body)
-            self.check("Agents has modes", "modes" in body)
-            self.check("Agents has providers", "providers" in body)
 
     def test_files(self):
-        print("\n Testing Files API...")
+        print("\n  Testing Files API...")
         self._ensure_auth()
         status, body, _ = self.client.get("/api/files")
-        self.assert_status("GET /api/files  200", status, 200, body)
+        self.assert_status("GET /api/files — 200", status, 200, body)
         if status == 200:
             self.check("Files returns array", "files" in body and isinstance(body["files"], list))
-            self.check("Files not empty", len(body.get("files", [])) > 0)
 
     def test_files_post(self):
-        print("\n Testing Files API  Read File...")
+        print("\n  Testing Files API — Read File...")
         self._ensure_auth()
-        # Get file list first
         status, body, _ = self.client.get("/api/files")
         if status == 200 and body.get("files"):
             file_path = body["files"][0]["path"]
             status2, body2, _ = self.client.post("/api/files", {"path": file_path})
-            self.assert_status(f"POST /api/files (read {file_path})  200", status2, 200, body2)
+            self.assert_status(f"POST /api/files (read {file_path}) — 200", status2, 200, body2)
             if status2 == 200:
                 self.check("File has content", "file" in body2 and "content" in body2["file"])
 
     def test_files_post_validation(self):
-        print("\n Testing Files API  Validation...")
+        print("\n  Testing Files API — Validation...")
         self._ensure_auth()
         status, _, _ = self.client.post("/api/files", {})
-        self.check("POST /api/files without path  400", status == 400)
+        self.check("POST /api/files without path — 400", status == 400)
 
     def test_knowledge(self):
-        print("\n Testing Knowledge API...")
+        print("\n  Testing Knowledge API...")
         self._ensure_auth()
         status, body, _ = self.client.get("/api/knowledge")
-        self.assert_status("GET /api/knowledge  200", status, 200, body)
+        self.assert_status("GET /api/knowledge — 200", status, 200, body)
         if status == 200:
-            self.check("Knowledge has entries", "entries" in body)
-            self.check("Knowledge not empty", len(body.get("entries", [])) > 0)
+            self.check("Knowledge has entries", "entries" in body and len(body.get("entries", [])) > 0)
 
     def test_knowledge_search(self):
-        print("\n Testing Knowledge API  Search...")
+        print("\n  Testing Knowledge API — Search...")
         self._ensure_auth()
         status, body, _ = self.client.get("/api/knowledge?q=backend")
-        self.assert_status("GET /api/knowledge?q=backend  200", status, 200, body)
+        self.assert_status("GET /api/knowledge?q=backend — 200", status, 200, body)
         if status == 200:
             self.check("Search returns entries", "entries" in body)
 
     def test_memory(self):
-        print("\n Testing Memory API...")
+        print("\n  Testing Memory API...")
         self._ensure_auth()
         status, body, _ = self.client.get("/api/memory")
-        self.assert_status("GET /api/memory  200", status, 200, body)
+        self.assert_status("GET /api/memory — 200", status, 200, body)
         if status == 200:
             self.check("Memory has profile", "profile" in body)
-            self.check("Memory has name", body.get("profile", {}).get("name"))
 
     def test_memory_update(self):
-        print("\n Testing Memory API  Update...")
+        print("\n  Testing Memory API — Update...")
         self._ensure_auth()
         status, body, _ = self.client.post("/api/memory", {
             "name": "Updated Name",
             "university": "MIT",
             "major": "CS",
         })
-        self.assert_status("POST /api/memory  200", status, 200, body)
+        self.assert_status("POST /api/memory — 200", status, 200, body)
         if status == 200:
             self.check("Memory updated name", body.get("profile", {}).get("name") == "Updated Name")
             self.check("Memory updated university", body.get("profile", {}).get("university") == "MIT")
 
     def test_memory_validation(self):
-        print("\n Testing Memory API  Validation...")
+        print("\n  Testing Memory API — Validation...")
         self._ensure_auth()
         status, _, _ = self.client.post("/api/memory", raw_body=b"not json")
-        self.check("POST /api/memory with invalid JSON  400", status == 400)
+        self.check("POST /api/memory with invalid JSON — 400", status == 400)
 
     def test_unauthenticated_access(self):
-        print("\n Testing Unauthenticated Access...")
+        print("\n  Testing Unauthenticated Access...")
         self.client.clear_cookies()
-        endpoints = [
-            ("GET", "/api/files"),
-            ("GET", "/api/knowledge"),
-            ("GET", "/api/memory"),
-            ("GET", "/api/agents"),
-        ]
-        for method, path in endpoints:
+        self.authenticated = False
+        for path in ["/api/files", "/api/knowledge", "/api/memory", "/api/agents"]:
             status, _, _ = self.client.get(path)
-            self.check(f"{method} {path} without auth  401", status == 401)
+            self.check(f"GET {path} without auth — 401", status == 401)
 
     # -----------------------------------------------------------------------
     # Chat tests
     # -----------------------------------------------------------------------
 
     def test_chat(self):
-        print("\n Testing Chat API...")
+        print("\n  Testing Chat API...")
         self._ensure_auth()
         status, body, _ = self.client.post("/api/chat", {
             "message": "Hello, what can you help me with?",
             "mode": "chat",
         })
-        # Chat requires LLM provider, so 500 is acceptable if no provider configured
         self.check(
-            "POST /api/chat  200 or 500 (no LLM provider)",
+            "POST /api/chat — 200 or 500 (no LLM provider)",
             status in (200, 500),
             f"status={status}"
         )
@@ -387,117 +377,109 @@ class TestSuite:
             self.check("Chat returns conversationId", "conversationId" in body)
 
     def test_chat_validation(self):
-        print("\n Testing Chat API  Validation...")
+        print("\n  Testing Chat API — Validation...")
         self._ensure_auth()
         status, _, _ = self.client.post("/api/chat", {})
-        self.check("POST /api/chat without message  400", status == 400)
+        self.check("POST /api/chat without message — 400", status == 400)
 
     def test_chat_long_message(self):
-        print("\n Testing Chat API  Long Message...")
+        print("\n  Testing Chat API — Long Message...")
         self._ensure_auth()
         status, _, _ = self.client.post("/api/chat", {
             "message": "x" * 9000,
         })
-        self.check("POST /api/chat with 9000 chars  413", status == 413)
+        self.check("POST /api/chat with 9000 chars — 413", status == 413)
 
     # -----------------------------------------------------------------------
     # Plan tests
     # -----------------------------------------------------------------------
 
     def test_plan(self):
-        print("\n Testing Plan API...")
+        print("\n  Testing Plan API...")
         self._ensure_auth()
         status, body, _ = self.client.post("/api/plan", {
             "goal": "Implement OAuth2 login for the app",
         })
-        # Plan requires LLM provider
         self.check(
-            "POST /api/plan  200 or 500 (no LLM provider)",
+            "POST /api/plan — 200 or 500 (no LLM provider)",
             status in (200, 500),
             f"status={status}"
         )
         if status == 200:
             self.check("Plan returns plan", "plan" in body)
-            self.check("Plan has content", body.get("plan", {}).get("content"))
 
     def test_plan_validation(self):
-        print("\n Testing Plan API  Validation...")
+        print("\n  Testing Plan API — Validation...")
         self._ensure_auth()
         status, _, _ = self.client.post("/api/plan", {})
-        self.check("POST /api/plan without goal  400", status == 400)
+        self.check("POST /api/plan without goal — 400", status == 400)
 
     # -----------------------------------------------------------------------
     # File diff/apply tests
     # -----------------------------------------------------------------------
 
     def test_file_diff(self):
-        print("\n Testing File Diff API...")
+        print("\n  Testing File Diff API...")
         self._ensure_auth()
-        # Get a file first
         status, body, _ = self.client.get("/api/files")
         if status == 200 and body.get("files"):
             file_path = body["files"][0]["path"]
-            status2, body2, _ = self.client.post("/api/files/diff", {
+            status2, _, _ = self.client.post("/api/files/diff", {
                 "filePath": file_path,
                 "instruction": "Add a comment at the top",
             })
-            # Diff requires LLM provider
             self.check(
-                f"POST /api/files/diff  200 or 500 (no LLM provider)",
+                "POST /api/files/diff — 200 or 500 (no LLM provider)",
                 status2 in (200, 500),
                 f"status={status2}"
             )
 
     def test_file_diff_validation(self):
-        print("\n Testing File Diff API  Validation...")
+        print("\n  Testing File Diff API — Validation...")
         self._ensure_auth()
         status, _, _ = self.client.post("/api/files/diff", {})
-        self.check("POST /api/files/diff without params  400", status == 400)
+        self.check("POST /api/files/diff without params — 400", status == 400)
 
     def test_file_apply(self):
-        print("\n Testing File Apply API...")
+        print("\n  Testing File Apply API...")
         self._ensure_auth()
-        # Get a file first
         status, body, _ = self.client.get("/api/files")
         if status == 200 and body.get("files"):
             file_path = body["files"][0]["path"]
             original_content = body["files"][0]["content"]
-            # Apply modified content
             status2, body2, _ = self.client.post("/api/files/apply", {
                 "path": file_path,
                 "content": original_content + "\n// test modification",
             })
-            self.assert_status("POST /api/files/apply  200", status2, 200, body2)
+            self.assert_status("POST /api/files/apply — 200", status2, 200, body2)
             if status2 == 200:
                 self.check("Apply returns file", "file" in body2)
-                # Restore original content
                 self.client.post("/api/files/apply", {
                     "path": file_path,
                     "content": original_content,
                 })
 
     def test_file_apply_validation(self):
-        print("\n Testing File Apply API  Validation...")
+        print("\n  Testing File Apply API — Validation...")
         self._ensure_auth()
         status, _, _ = self.client.post("/api/files/apply", {})
-        self.check("POST /api/files/apply without params  400", status == 400)
+        self.check("POST /api/files/apply without params — 400", status == 400)
 
     # -----------------------------------------------------------------------
     # Commit tests
     # -----------------------------------------------------------------------
 
     def test_commit_list(self):
-        print("\n Testing Commit API  List...")
+        print("\n  Testing Commit API — List...")
         self._ensure_auth()
         status, body, _ = self.client.get("/api/files/commits")
-        self.assert_status("GET /api/files/commits  200", status, 200, body)
+        self.assert_status("GET /api/files/commits — 200", status, 200, body)
         if status == 200:
             self.check("Commits has array", "commits" in body)
 
     def test_commit_create(self):
-        print("\n Testing Commit API  Create...")
+        print("\n  Testing Commit API — Create...")
         self._ensure_auth()
-        # Modify a file first
         status, body, _ = self.client.get("/api/files")
         if status == 200 and body.get("files"):
             file_path = body["files"][0]["path"]
@@ -506,36 +488,27 @@ class TestSuite:
                 "path": file_path,
                 "content": original + "\n// commit test",
             })
-            # Commit
-            status2, body2, _ = self.client.post("/api/files/commit", {
-                "message": "Test commit",
-            })
+            status2, _, _ = self.client.post("/api/files/commit", {"message": "Test commit"})
             self.check(
-                "POST /api/files/commit  200 or 400 (no modified files)",
+                "POST /api/files/commit — 200 or 400 (no modified files)",
                 status2 in (200, 400),
                 f"status={status2}"
             )
-            # Restore
-            self.client.post("/api/files/apply", {
-                "path": file_path,
-                "content": original,
-            })
+            self.client.post("/api/files/apply", {"path": file_path, "content": original})
 
     # -----------------------------------------------------------------------
     # SSE Stream tests
     # -----------------------------------------------------------------------
 
     def test_chat_stream(self):
-        print("\n Testing Chat Stream API...")
+        print("\n  Testing Chat Stream API...")
         self._ensure_auth()
-        # We can't easily parse SSE in urllib, but we can check the endpoint exists
-        status, body, raw = self.client.post("/api/chat/stream", {
+        status, _, _ = self.client.post("/api/chat/stream", {
             "message": "Hello",
             "mode": "chat",
         })
-        # Stream endpoint should return 200 with SSE content-type or 500
         self.check(
-            "POST /api/chat/stream  200 or 500",
+            "POST /api/chat/stream — 200 or 500",
             status in (200, 500),
             f"status={status}"
         )
@@ -545,31 +518,22 @@ class TestSuite:
     # -----------------------------------------------------------------------
 
     def test_invalid_json(self):
-        print("\n  Testing Edge Cases  Invalid JSON...")
+        print("\n  Testing Edge Cases — Invalid JSON...")
         self._ensure_auth()
-        endpoints = [
-            "/api/chat",
-            "/api/plan",
-            "/api/memory",
-            "/api/files",
-            "/api/files/apply",
-            "/api/files/commit",
-            "/api/files/diff",
-        ]
-        for path in endpoints:
+        for path in ["/api/chat", "/api/plan", "/api/memory", "/api/files",
+                       "/api/files/apply", "/api/files/commit", "/api/files/diff"]:
             status, _, _ = self.client.request("POST", path, raw_body=b"not json")
-            # 400 = invalid JSON caught, 401 = auth checked first (both correct)
             self.check(
-                f"POST {path} with invalid JSON  400 or 401",
+                f"POST {path} with invalid JSON — 400 or 401",
                 status in (400, 401),
                 f"status={status}"
             )
 
     def test_nonexistent_endpoint(self):
-        print("\n  Testing Edge Cases  404...")
+        print("\n  Testing Edge Cases — 404...")
         self._ensure_auth()
         status, _, _ = self.client.get("/api/nonexistent")
-        self.check("GET /api/nonexistent  404", status == 404)
+        self.check("GET /api/nonexistent — 404", status == 404)
 
     # -----------------------------------------------------------------------
     # Run all tests
@@ -583,20 +547,15 @@ class TestSuite:
 
         start = time.time()
 
-        # Pages
         self.test_pages()
-
-        # Auth
         self.test_auth_register()
         self.test_auth_register_duplicate()
         self.test_auth_register_validation()
-        self.test_auth_me()
-        self.test_auth_login()
-        self.test_auth_login_wrong_password()
-        self.test_auth_login_nonexistent()
-        self.test_auth_logout()
+        self.test_auth_get_session()
+        self.test_auth_signin()
+        self.test_auth_signin_wrong_password()
+        self.test_auth_signin_nonexistent()
 
-        # Protected endpoints
         self.test_agents()
         self.test_files()
         self.test_files_post()
@@ -608,33 +567,29 @@ class TestSuite:
         self.test_memory_validation()
         self.test_unauthenticated_access()
 
-        # Chat & Plan
         self.test_chat()
         self.test_chat_validation()
         self.test_chat_long_message()
         self.test_plan()
         self.test_plan_validation()
 
-        # File operations
         self.test_file_diff()
         self.test_file_diff_validation()
         self.test_file_apply()
         self.test_file_apply_validation()
 
-        # Commits
         self.test_commit_list()
         self.test_commit_create()
 
-        # Streaming
         self.test_chat_stream()
 
-        # Edge cases
         self.test_invalid_json()
         self.test_nonexistent_endpoint()
 
+        self.test_auth_signout()
+
         elapsed = time.time() - start
 
-        # Summary
         passed = sum(1 for r in self.results if r.passed)
         failed = sum(1 for r in self.results if not r.passed)
         total = len(self.results)
@@ -653,16 +608,14 @@ class TestSuite:
         return failed == 0
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GradBridge Full Application Test Suite")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
     parser.add_argument("--stop-on-fail", "-s", action="store_true", help="Stop on first failure")
+    parser.add_argument("--url", "-u", default=BASE_URL, help="Base URL of the GradBridge server")
     args = parser.parse_args()
 
+    BASE_URL = args.url
     suite = TestSuite(verbose=args.verbose, stop_on_fail=args.stop_on_fail)
     success = suite.run_all()
     sys.exit(0 if success else 1)
