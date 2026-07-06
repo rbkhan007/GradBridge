@@ -18,6 +18,7 @@ model User {
   id           String         @id
   email        String         @unique
   name         String
+  role         String         @default("user")
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   profile      UserProfile?
@@ -32,6 +33,8 @@ model User {
   ragFeedback  RagFeedback[]
   vectorEmbeddings VectorEmbedding[]
   skillAudits  SkillAudit[]
+  webhookEndpoints WebhookEndpoint[]
+  webhookEvents    WebhookEvent[]
 }
 
 model UserApiKey {
@@ -254,4 +257,34 @@ model SkillAudit {
   @@index([skill])
   @@index([auditedAt])
   @@index([userId, skill, auditedAt])
+}
+
+model WebhookEndpoint {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  events    String   @default("[]")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  eventsLog WebhookEvent[] @relation("WebhookEvents")
+
+  @@index([userId])
+}
+
+model WebhookEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpointId String
+  endpoint   WebhookEndpoint @relation("WebhookEvents", fields: [endpointId], references: [id], onDelete: Cascade)
+  event      String
+  payload    String
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([endpointId])
+  @@index([status])
 }

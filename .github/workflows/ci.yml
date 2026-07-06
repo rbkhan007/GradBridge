@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bunx prisma generate
+      - run: bunx prisma generate --schema=prisma/schema.sqlite.prisma
       - run: bun run build
 
   test:
@@ -43,7 +43,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bunx prisma generate
+      - run: bunx prisma generate --schema=prisma/schema.sqlite.prisma
+      - run: bunx prisma db push --schema=prisma/schema.sqlite.prisma
       - run: bun run dev &
       - name: Wait for server
         run: sleep 15

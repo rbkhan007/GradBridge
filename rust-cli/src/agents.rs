@@ -351,27 +351,6 @@ pub fn mentor_prompt() -> &'static str {
      and actionable."
 }
 
-/// System prompt for the Plan agent (read-only structured planning).
-pub fn plan_prompt() -> &'static str { &PLAN_PROMPT }
-
-/// System prompt for the Build agent (executes approved changes).
-pub fn build_prompt() -> &'static str { &BUILD_PROMPT }
-
-/// System prompt for the Coder sub-agent.
-pub fn coder_prompt() -> &'static str { &CODER_PROMPT }
-
-/// System prompt for the Reviewer sub-agent.
-pub fn reviewer_prompt() -> &'static str { &REVIEWER_PROMPT }
-
-/// System prompt for the Debugger sub-agent.
-pub fn debugger_prompt() -> &'static str { &DEBUGGER_PROMPT }
-
-/// System prompt for the Optimizer sub-agent.
-pub fn optimizer_prompt() -> &'static str { &OPTIMIZER_PROMPT }
-
-/// System prompt for the Career Mentor sub-agent.
-pub fn mentor_prompt() -> &'static str { &MENTOR_PROMPT }
-
 /// Look up an `AgentDefinition` by ID.
 pub fn agent_definition(id: AgentId) -> AgentDefinition {
     match id {
