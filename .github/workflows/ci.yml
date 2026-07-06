@@ -65,5 +65,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust-cli
-      - run: cargo check
+      - run: cargo check 2>&1 | tee -a $GITHUB_STEP_SUMMARY
       - run: cargo test
