@@ -30,8 +30,10 @@
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql" alt="PostgreSQL 16" />
   <img src="https://img.shields.io/badge/pgvector-ready-00ff00?style=for-the-badge" alt="pgvector" />
   <img src="https://img.shields.io/badge/Rust-CLI-orange?style=for-the-badge&logo=rust" alt="Rust CLI" />
+  <img src="https://img.shields.io/badge/Neon_Auth-0.4-00e599?style=for-the-badge" alt="Neon Auth" />
   <img src="https://img.shields.io/badge/License-Apache_2.0-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge" alt="PRs Welcome" />
+  <img src="https://img.shields.io/github/actions/workflow/status/rbkhan007/GradBridge/ci.yml?style=for-the-badge&label=CI" alt="CI" />
 </p>
 
 ---
@@ -91,9 +93,10 @@ GradBridge is a production-ready, multi-user AI agent workspace built for fresh 
 ### Prerequisites
 
 - [Bun](https://bun.sh/) (recommended) or Node.js 18+
-- A terminal
+- [Neon Auth](https://neon.tech/docs/guides/neon-auth) account (for production) OR a terminal for local dev
+- A PostgreSQL database (production) — SQLite works for local dev
 
-### Install & Run
+### Install & Run (Local Dev)
 
 ```bash
 # Clone the repository
@@ -103,13 +106,18 @@ cd GradBridge
 # Install dependencies
 bun install
 
-# Set up the database (SQLite for local dev)
-bun run db:sqlite         # Push SQLite schema
-bun run db:seed           # Seed knowledge base + project files
+# Generate Prisma client (SQLite for local dev)
+bun run db:generate:sqlite
+
+# Push the SQLite schema & seed data
+bun run db:sqlite
+bun run db:seed
 
 # Start the dev server
 bun run dev               # → http://localhost:3000
 ```
+
+The app starts in **local auth fallback** mode — registration, sign-in, and sessions work without any external dependencies. No Neon Auth credentials needed for development.
 
 ### First Login
 
@@ -118,6 +126,19 @@ bun run dev               # → http://localhost:3000
 3. Fill your name, email, and password (min 8 chars)
 4. You're automatically logged in and land on the dashboard
 5. Start chatting with the AI agent!
+
+### Production Setup (Vercel + Neon Auth)
+
+For a live deployment, set these environment variables in your Vercel project:
+
+```env
+DATABASE_URL="postgresql://user:password@host:5432/gradbridge?schema=public"
+NEON_AUTH_BASE_URL="https://your-neon-auth-instance.region.neon.tech"
+NEON_AUTH_COOKIE_SECRET="your-32-char-minimum-secret"
+NEXT_PUBLIC_APP_URL="https://your-domain.vercel.app"
+```
+
+Auth is handled by [Neon Auth](https://neon.tech/docs/guides/neon-auth) — a managed Better Auth service — with automatic fallback to a local cookie-based auth when env vars are unset.
 
 ---
 
@@ -436,8 +457,14 @@ DATABASE_URL="postgresql://user:password@host:5432/gradbridge?schema=public"
 # Local dev: SQLite (uncomment below, comment out PostgreSQL)
 # DATABASE_URL="file:./db/custom.db"
 
+# ─── Neon Auth (required for production) ───────────────────
+# Local dev / CI: leave unset — app falls back to local cookie-based auth
+NEON_AUTH_BASE_URL="https://your-neon-auth-instance.region.neon.tech"
+NEON_AUTH_COOKIE_SECRET="at-least-32-characters-long-secret-key!!"
+NEXT_PUBLIC_APP_URL="https://your-domain.vercel.app"
+
 # ─── LLM Providers (optional — falls back to local responder) ─
-# ZAI_API_KEY="your-zai-api-key"
+ZAI_API_KEY="your-zai-api-key"
 
 # OpenRouter (provides free tier + user API keys)
 # OPENROUTER_API_KEY="sk-or-v1-..."
@@ -465,8 +492,13 @@ DATABASE_URL="postgresql://user:password@host:5432/gradbridge?schema=public"
 
 1. Push to GitHub
 2. Import in [Vercel](https://vercel.com)
-3. Set environment variables (PostgreSQL URL, GRADBRIDGE_SECRET)
-4. Deploy
+3. Set the required environment variables:
+   - `DATABASE_URL` — PostgreSQL connection string
+   - `NEON_AUTH_BASE_URL` — your Neon Auth instance URL
+   - `NEON_AUTH_COOKIE_SECRET` — minimum 32 characters
+   - `NEXT_PUBLIC_APP_URL` — your production domain
+   - `ZAI_API_KEY` (or other LLM provider key)
+4. Deploy — the build command in `vercel.json` handles Prisma generation automatically
 
 ### Docker Compose
 
@@ -474,12 +506,12 @@ DATABASE_URL="postgresql://user:password@host:5432/gradbridge?schema=public"
 docker compose up -d
 ```
 
-Includes PostgreSQL 16 + the web service.
+Includes PostgreSQL 16 + pgvector + the web service.
 
 ### Railway
 
 1. Connect your GitHub repo
-2. Set `DATABASE_URL` to a PostgreSQL connection string
+2. Set all required environment variables
 3. Deploy
 
 ### Switching to PostgreSQL
@@ -502,15 +534,83 @@ bun run dev
 
 ## Rust CLI
 
-A terminal UI edition built with Rust:
+A terminal UI edition built with Rust (requires Rust 1.75+):
 
 ```bash
 cd rust-cli
 cargo build --release
-./target/release/gradbridge
+./target/release/gradbridge --help
 ```
 
-Features: local-first mode (Ollama + offline RAG), SSE streaming, ratatui interface.
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `gradbridge login` | Authenticate against the web app |
+| `gradbridge chat "prompt"` | One-shot chat (Chat mode) |
+| `gradbridge plan "goal"` | Plan agent → structured plan |
+| `gradbridge tui` | Launch the interactive TUI |
+| `gradbridge files` | List indexed project files |
+| `gradbridge rag reindex` | Rebuild local RAG index |
+
+### Local-First Mode
+
+Run without a web backend by passing `--local` — uses direct Ollama API calls + offline SQLite RAG:
+
+```bash
+gradbridge --local chat "explain this code"
+gradbridge --local plan "build a REST API"
+```
+
+Configure the Ollama endpoint and model:
+```bash
+gradbridge local set-url http://localhost:11434
+gradbridge local set-model qwen2.5-coder:7b
+gradbridge local check          # verify Ollama is reachable
+```
+
+### Features
+
+- **Local-first mode** — Ollama + offline RAG, no auth required
+- **SSE streaming** — token-by-token rendering in the TUI
+- **6 agent modes** — Chat, Plan, Build, Debug, Optimize, Career
+- **ratatui interface** — keyboard-driven, split-pane layout, spinner + context panel
+
+---
+
+## Troubleshooting
+
+### Auth Issues on Vercel
+
+**Problem:** Sign-up or sign-in fails, or `getSession` returns null on Vercel.
+
+**Check:**
+1. **`NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET`** must be set in Vercel project settings (not just `.env`).
+2. **Cookie secret** must be at least 32 characters.
+3. **`NEXT_PUBLIC_APP_URL`** must match your production domain.
+4. **Cold starts** — in serverless environments, in-memory auth stores don't persist. The app uses Neon Auth in production to avoid this.
+
+### Build Fails — Prisma Client Generation
+
+```bash
+# Ensure DATABASE_URL is set (format only needed, DB doesn't need to be reachable)
+DATABASE_URL="postgresql://user:pass@host:5432/db?schema=public" bunx prisma generate --schema=prisma/schema.prisma
+
+# For local dev with SQLite:
+bun run db:generate:sqlite
+```
+
+### CI Pipeline
+
+The project includes a GitHub Actions CI pipeline (`.github/workflows/ci.yml`) that runs:
+- **Type Check & Lint** — TypeScript type checking + ESLint
+- **Build** — Production build verification
+- **Rust CLI** — `cargo check` on stable Rust (MSRV 1.75)
+- **Integration Tests** — Python test suite against the running dev server
+
+### Agent Prompts
+
+See [AGENT.md](AGENT.md) for the full system prompts of all 7 sub-agents.
 
 ---
 

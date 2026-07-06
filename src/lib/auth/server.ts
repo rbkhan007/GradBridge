@@ -37,7 +37,7 @@ function createLocalAuth() {
       GET: async (req: NextRequest) => {
         const token = req.cookies.get(SESSION_COOKIE)?.value;
         const user = token ? await sessionUser(token) : null;
-        return NextResponse.json({ user });
+        return NextResponse.json({ user: user ?? null, session: token ? { id: token } : null });
       },
       POST: async (req: NextRequest) => {
         const action = new URL(req.url).pathname.split("/").pop();
@@ -74,28 +74,38 @@ function createLocalAuth() {
         const id = generateToken();
         const salt = randomBytes(16).toString("hex");
         _passwords.set(body.email, `${hashPassword(body.password, salt)}:${salt}`);
-        // Don't create user here — the caller (register route) handles DB insertion.
-        // Just return the generated ID so the caller can use it.
         return { data: { user: { id, email: body.email, name: body.name } }, error: null };
       },
     },
-    getSession: async () => ({ data: null, error: null }),
+    getSession: async () => {
+      try {
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const token = cookieStore.get(SESSION_COOKIE)?.value;
+        if (!token) return { data: null, error: null };
+        const userId = _sessions.get(token);
+        if (!userId) return { data: null, error: null };
+        const user = await (db as any).user.findUnique({ where: { id: userId } });
+        if (!user) return { data: null, error: null };
+        return { data: { user: jsonUser(user), session: { id: token, expiresAt: new Date(Date.now() + 604800_000), createdAt: new Date(), updatedAt: new Date() } }, error: null };
+      } catch {
+        return { data: null, error: null };
+      }
+    },
     getUser: async () => ({ data: null, error: null }),
     signOut: async () => ({ data: null, error: null }),
   };
 }
 
 export function getAuth() {
-  if (!_auth) {
-    const baseUrl = process.env.NEON_AUTH_BASE_URL;
-    const cookiesSecret = process.env.NEON_AUTH_COOKIE_SECRET;
-    if (baseUrl && cookiesSecret && cookiesSecret.length >= 32) {
-      _auth = createNeonAuth({ baseUrl, cookies: { secret: cookiesSecret }, logLevel: "warn" });
-    }
-    // If env vars not set, return null — the proxy will use local fallback.
-    return null;
+  if (_auth) return _auth;
+  const baseUrl = process.env.NEON_AUTH_BASE_URL;
+  const cookiesSecret = process.env.NEON_AUTH_COOKIE_SECRET;
+  if (baseUrl && cookiesSecret && cookiesSecret.length >= 32) {
+    _auth = createNeonAuth({ baseUrl, cookies: { secret: cookiesSecret }, logLevel: "warn" });
+    return _auth;
   }
-  return _auth;
+  return null;
 }
 
 /** Auth proxy with local fallback.

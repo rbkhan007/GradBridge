@@ -405,7 +405,7 @@ pub async fn run(mut app: TuiApp) -> Result<()> {
                 let Some(event_result) = maybe_event else { break Ok(()) };
                 let event = event_result.context("read terminal event")?;
                 if !handle_event(&mut app, event) {
-                    break; // q / Ctrl+C
+                    break Ok(()); // q / Ctrl+C
                 }
             }
 
