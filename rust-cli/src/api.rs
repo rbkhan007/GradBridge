@@ -217,13 +217,14 @@ impl GradBridgeApi {
     // --- Internal helpers ---
 
     /// Build a request with the session cookie attached.
+    /// Encodes the token value per RFC 6265 to handle `=` and other reserved chars.
     fn request(&self, method: Method, path: &str) -> RequestBuilder {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.request(method, &url);
         if !self.session_token.is_empty() {
             req = req.header(
                 reqwest::header::COOKIE,
-                format!("{}={}", SESSION_COOKIE_NAME, self.session_token),
+                format!("{}={}", SESSION_COOKIE_NAME, cookie_encode(&self.session_token)),
             );
         }
         req
@@ -616,27 +617,29 @@ where
                     }
                 }
                 if data.is_empty() {
-                    continue; // comment / keep-alive line — look for the next event
+                    continue;
                 }
                 if data.ends_with('\n') {
                     data.pop();
                 }
-                if data == "[DONE]" {
+                let data = data.trim().to_string();
+
+                // Check for [DONE] sentinel anywhere in the data payload.
+                if data == "[DONE]" || data.ends_with("[DONE]") || data.contains("\n[DONE]") {
+                    // Emit any content before [DONE] as a final delta, then signal end.
+                    let before_done = data.trim_end_matches("[DONE]").trim_end_matches('\n').to_string();
+                    if !before_done.is_empty() {
+                        return std::task::Poll::Ready(Some(Ok(SseEvent::Delta(before_done))));
+                    }
                     return std::task::Poll::Ready(None);
                 }
 
-                // Try to preserve the meta/agent context across events.
-                // A meta event may arrive before deltas — hold the pending
-                // metadata so downstream code doesn't get out-of-order events.
                 match Self::parse_event(&data) {
                     Some(SseEvent::Meta { conversation_id, rag, agent_id, agent_name }) => {
                         this.pending_conversation_id = Some(conversation_id);
                         this.pending_rag = rag;
                         this.pending_agent_id = agent_id;
                         this.pending_agent_name = agent_name;
-                        // Don't emit Meta as a separate event — the downstream
-                        // handler will get the conversation_id from the Done event.
-                        // We store it for the next data event instead.
                         continue;
                     }
                     Some(SseEvent::Delta(content)) => {
@@ -676,10 +679,11 @@ where
                         }
                         this.buffer.clear();
                     }
-                    if this.text_buf.trim().is_empty() {
+                    let remaining = this.text_buf.trim().to_string();
+                    this.text_buf.clear();
+                    if remaining.is_empty() || remaining == "[DONE]" || remaining.contains("[DONE]") {
                         return std::task::Poll::Ready(None);
                     }
-                    let remaining = std::mem::take(&mut this.text_buf);
                     return std::task::Poll::Ready(Some(Ok(
                         Self::parse_event(&remaining).unwrap_or(SseEvent::Delta(remaining)),
                     )));
@@ -692,8 +696,8 @@ where
     }
 }
 
-/// Minimal percent-encoder for query-string values (encodes spaces + a few
-/// reserved chars). Good enough for the knowledge-base search box.
+/// Percent-encoder for arbitrary string values.
+/// Encodes all characters except unreserved RFC 3986 set.
 fn urlencoding(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -702,6 +706,22 @@ fn urlencoding(s: &str) -> String {
                 out.push(b as char);
             }
             b' ' => out.push_str("%20"),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+/// Cookie-value encoder: RFC 6265 cookie-octet excludes CTLs, whitespace,
+/// double-quote, comma, semicolon, and backslash. Encode anything outside
+/// the safe set as `%XX`.
+fn cookie_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'!' | b'#'..=b'+' | b'-'..=b':' | b'<'..=b'[' | b']'..=b'~' => {
+                out.push(b as char);
+            }
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }

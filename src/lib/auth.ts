@@ -1,36 +1,36 @@
-// GradBridge auth — wraps Neon Auth for backward-compatible API.
-// External callers use requireUser() / getSessionUser() — they now delegate
-// to the Neon Auth server SDK instead of custom HMAC+scrypt.
+import { NextResponse } from "next/server";
+import { auth as neonAuth } from "@/lib/auth/server";
+import type { SessionUser } from "@/lib/types";
 
-import { auth } from "./auth/server";
-import type { SessionUser } from "./types";
-
-export type { SessionUser } from "./types";
-
-/** HTTP error carrying a status code, for use in route handlers. */
 export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
+  status: number;
+  constructor(message: string, status: number) {
     super(message);
+    this.status = status;
   }
 }
 
-/** Resolve the current authenticated user, or null. */
-export async function getSessionUser(_req?: Request): Promise<SessionUser | null> {
+export type { SessionUser };
+
+export async function getSessionUser(req: Request): Promise<SessionUser | null> {
   try {
-    const { data: session } = await auth.getSession();
-    if (!session?.user) return null;
-    return { id: session.user.id, name: session.user.name ?? "", email: session.user.email ?? "" };
+    const { data } = await neonAuth.getSession();
+    if (!data?.user) return null;
+    return {
+      id: data.user.id,
+      name: data.user.name ?? "",
+      email: data.user.email ?? "",
+      role: (data.user as any).role ?? "user",
+    };
   } catch {
     return null;
   }
 }
 
-/** Require an authenticated user; throws HttpError(401) otherwise. */
-export async function requireUser(_req?: Request): Promise<SessionUser> {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) throw new HttpError(401, "Not authenticated");
-  return sessionUser;
+export async function requireUser(req: Request): Promise<SessionUser | NextResponse> {
+  const user = await getSessionUser(req);
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  return user;
 }

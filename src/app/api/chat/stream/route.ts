@@ -1,14 +1,10 @@
-// POST /api/chat/stream — streaming agent chat via Server-Sent Events.
-// Same agent + RAG + memory logic as /api/chat, but streams tokens to the
-// client as they arrive. Persists the full assistant message after the stream
-// completes. User-scoped.
 import { db } from "@/lib/db";
 import { resolveAgent } from "@/lib/agents";
 import { ragSearch } from "@/lib/rag";
-import { streamCompletion, estimateTokens, type ChatTurn } from "@/lib/llm";
+import { streamCompletion, type ChatTurn } from "@/lib/llm";
 import { buildSystemPrompt } from "@/lib/context";
 import { toProfile } from "@/lib/serializers";
-import { requireUser, HttpError } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import type { ChatRequest } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -22,13 +18,8 @@ export async function POST(req: Request) {
     return sseError("Invalid JSON body");
   }
 
-  let user;
-  try {
-    user = await requireUser(req);
-  } catch (err) {
-    const status = err instanceof HttpError ? err.status : 401;
-    return sseError(err instanceof HttpError ? err.message : "Not authenticated", status);
-  }
+  const user = await requireUser(req);
+  if (user instanceof Response) return sseError("Not authenticated", 401);
 
   const message = (body.message ?? "").trim();
   if (!message) return sseError("message is required");
@@ -38,44 +29,39 @@ export async function POST(req: Request) {
   const agent = resolveAgent(mode, body.agentId);
 
   try {
-    // 1. Load or create the conversation.
     let conversation = body.conversationId
-      ? await db.conversation.findFirst({
-          where: { id: body.conversationId, userId: user.id },
-          include: { messages: { orderBy: { createdAt: "asc" } } },
-        })
+      ? await db.conversation.findFirst({ where: { id: body.conversationId, userId: user.id }, include: { messages: { orderBy: { createdAt: "asc" } } } })
       : null;
     if (!conversation) {
-      conversation = await db.conversation.create({
-        data: { userId: user.id, title: message.slice(0, 60) },
-        include: { messages: true },
-      });
+      conversation = await db.conversation.create({ data: { userId: user.id, title: message.slice(0, 60) }, include: { messages: true } });
     }
 
-    // 2. Profile + RAG + active file.
-    const profileRow =
-      (await db.userProfile.findUnique({ where: { userId: user.id } })) ??
-      (await db.userProfile.create({ data: { userId: user.id, name: user.name } }));
+    const profileRow = (await db.userProfile.findUnique({ where: { userId: user.id } })) ?? (await db.userProfile.create({ data: { userId: user.id, name: user.name } }));
     const profile = toProfile(profileRow);
 
-    const ragResults = body.context?.ragResults?.length
-      ? body.context.ragResults
-      : await ragSearch(message, 4, user.id);
+    const ragResults = body.context?.ragResults?.length ? body.context.ragResults : await ragSearch(message, 4, user.id);
 
     let activeFile: { path: string; content: string } | null = null;
     if (body.context?.activeFilePath) {
-      const f = await db.projectFile.findFirst({
-        where: { userId: user.id, path: body.context.activeFilePath },
-      });
+      const f = await db.projectFile.findFirst({ where: { userId: user.id, path: body.context.activeFilePath } });
       if (f) activeFile = { path: f.path, content: f.content };
     }
 
-    // 3. System prompt + turns.
-    const systemPrompt = buildSystemPrompt(agent.systemPrompt, {
-      profile,
-      ragResults,
-      activeFile,
-    });
+    const systemPrompt = buildSystemPrompt(agent.systemPrompt, { profile, ragResults, activeFile });
+
+    let userApiKey: string | null = null;
+    const keyRow = await db.userApiKey.findUnique({ where: { userId: user.id } });
+    if (keyRow) {
+      userApiKey = keyRow.apiKey;
+    } else {
+      const today = new Date().toISOString().slice(0, 10);
+      const usage = await db.dailyUsage.findUnique({ where: { userId_date: { userId: user.id, date: today } } });
+      const freeUsed = usage?.count ?? 0;
+      if (freeUsed >= 5) {
+        return sseError("Daily free message limit reached (5/5). Add your own API key in Settings for unlimited usage.", 429);
+      }
+    }
+
     const history = conversation.messages.slice(-12);
     const turns: ChatTurn[] = [
       { role: "system", content: systemPrompt },
@@ -86,166 +72,37 @@ export async function POST(req: Request) {
       { role: "user", content: message },
     ];
 
-    // 4. Check API key and daily usage.
-    let userApiKey: string | null = null;
-    let freeUsed = 0;
-    const keyRow = await db.userApiKey.findUnique({ where: { userId: user.id } });
-    if (keyRow) {
-      userApiKey = keyRow.apiKey;
-    } else {
-      const today = new Date().toISOString().slice(0, 10);
-      const usage = await db.dailyUsage.findUnique({
-        where: { userId_date: { userId: user.id, date: today } },
-      });
-      freeUsed = usage?.count ?? 0;
-      if (freeUsed >= 5) {
-        const encoder2 = new TextEncoder();
-        const limitStream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder2.encode(
-                `data: ${JSON.stringify({
-                  type: "error",
-                  error: "Daily free message limit reached (5/5). Add your own API key in Settings for unlimited usage.",
-                })}\n\n`,
-              ),
-            );
-            controller.close();
-          },
-        });
-        return new Response(limitStream, {
-          status: 429,
-          headers: { "Content-Type": "text/event-stream" },
-        });
-      }
-    }
+    await db.message.create({ data: { conversationId: conversation.id, role: "user", content: message, agentMode: mode } });
 
-    // 5. Persist the user message.
-    await db.message.create({
-      data: {
-        conversationId: conversation.id,
-        role: "user",
-        content: message,
-        agentMode: mode,
-      },
-    });
-
-    // 5. Stream the response via SSE.
     const encoder = new TextEncoder();
+    let fullContent = "";
     const stream = new ReadableStream({
       async start(controller) {
-        let fullContent = "";
-        let provider = "unknown";
-
-        // Send metadata first.
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({
-              type: "meta",
-              conversationId: conversation!.id,
-              ragResults,
-              agentId: agent.id,
-              agentName: agent.name,
-            })}\n\n`,
-          ),
-        );
+        try {
+          const gen = streamCompletion(turns, { userApiKey: userApiKey ?? undefined });
+          for await (const chunk of gen) {
+            fullContent += chunk;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", content: chunk })}\n\n`));
+          }
+        } catch (streamErr) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", error: "Stream failed" })}\n\n`));
+          controller.close();
+          return;
+        }
 
         try {
-          for await (const chunk of streamCompletion(turns, { userApiKey: userApiKey ?? undefined })) {
-            if (chunk.delta) {
-              fullContent += chunk.delta;
-              provider = chunk.provider;
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "delta", content: chunk.delta })}\n\n`,
-                ),
-              );
-            }
-            if (chunk.done) {
-              provider = chunk.provider;
-            }
+          const assistantRow = await db.message.create({ data: { conversationId: conversation.id, role: "assistant", content: fullContent, agentMode: mode, agentId: agent.id } });
+          const tokensUsed = Math.ceil(fullContent.length / 4);
+          await db.agentRun.create({ data: { userId: user.id, conversationId: conversation.id, mode, agentId: agent.id, prompt: message, result: fullContent, tokensUsed } });
+          if (!userApiKey) {
+            const today = new Date().toISOString().slice(0, 10);
+            await db.dailyUsage.upsert({ where: { userId_date: { userId: user.id, date: today } }, create: { userId: user.id, date: today, count: 1 }, update: { count: { increment: 1 } } });
           }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "error", error: msg })}\n\n`,
-            ),
-          );
+          await db.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", conversationId: conversation.id, messageId: assistantRow.id })}\n\n`));
+        } catch (persistErr) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", error: "Failed to persist message" })}\n\n`));
         }
-
-        // 6. Persist the assistant message + audit run (with error handling).
-        if (fullContent.trim()) {
-          try {
-            const tokensUsed =
-              estimateTokens(turns) +
-              estimateTokens([{ role: "assistant", content: fullContent }]);
-
-            const result = await db.$transaction(async (tx) => {
-              const assistantRow = await tx.message.create({
-                data: {
-                  conversationId: conversation!.id,
-                  role: "assistant",
-                  content: fullContent,
-                  agentMode: mode,
-                  agentId: agent.id,
-                },
-              });
-              await tx.agentRun.create({
-                data: {
-                  userId: user!.id,
-                  conversationId: conversation!.id,
-                  mode,
-                  agentId: agent.id,
-                  prompt: message,
-                  result: fullContent,
-                  tokensUsed,
-                },
-              });
-              await tx.conversation.update({
-                where: { id: conversation!.id },
-                data: { updatedAt: new Date() },
-              });
-
-              // Track daily free usage (only when using the shared fallback key).
-              if (!userApiKey) {
-                const today = new Date().toISOString().slice(0, 10);
-                await tx.dailyUsage.upsert({
-                  where: { userId_date: { userId: user!.id, date: today } },
-                  create: { userId: user!.id, date: today, count: 1 },
-                  update: { count: { increment: 1 } },
-                });
-              }
-
-              return { messageId: assistantRow.id, tokensUsed };
-            });
-
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "done",
-                  messageId: result.messageId,
-                  provider,
-                  tokensUsed: result.tokensUsed,
-                })}\n\n`,
-              ),
-            );
-          } catch (dbErr) {
-            console.error("[chat/stream] Failed to persist assistant message:", dbErr);
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "done", provider })}\n\n`,
-              ),
-            );
-          }
-        } else {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "done", provider })}\n\n`,
-            ),
-          );
-        }
-
         controller.close();
       },
     });
@@ -263,19 +120,13 @@ export async function POST(req: Request) {
   }
 }
 
-/** Return an SSE-formatted error response. */
 function sseError(message: string, status = 400): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream({
     start(controller) {
-      controller.enqueue(
-        encoder.encode(`data: ${JSON.stringify({ type: "error", error: message })}\n\n`),
-      );
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", error: message })}\n\n`));
       controller.close();
     },
   });
-  return new Response(body, {
-    status,
-    headers: { "Content-Type": "text/event-stream" },
-  });
+  return new Response(body, { status, headers: { "Content-Type": "text/event-stream" } });
 }

@@ -1,17 +1,15 @@
-// Shared types for GradBridge — the contract between API routes and the frontend.
-
-/** The authenticated user (safe to expose to the client — no password hash). */
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
+  role?: string;
 }
 
-/** Session user — same shape as AuthUser, used in server route handlers. */
 export interface SessionUser {
   id: string;
   name: string;
   email: string;
+  role: string;
 }
 
 export type AgentMode =
@@ -31,7 +29,6 @@ export type AgentId =
   | "optimizer"
   | "mentor";
 
-/** Agent task status — state machine for reliable autonomous execution. */
 export type AgentTaskStatus =
   | "pending"
   | "running"
@@ -39,13 +36,15 @@ export type AgentTaskStatus =
   | "failed"
   | "timeout";
 
+export type UserRole = "user" | "admin" | "moderator";
+
 export interface AgentDefinition {
   id: AgentId;
   name: string;
   role: string;
   description: string;
-  icon: string; // lucide icon name
-  accent: string; // tailwind gradient classes
+  icon: string;
+  accent: string;
   systemPrompt: string;
 }
 
@@ -100,7 +99,7 @@ export interface Plan {
   id: string;
   title: string;
   goal: string;
-  content: string; // markdown
+  content: string;
   status: "draft" | "approved" | "applied";
   createdAt: string;
 }
@@ -143,12 +142,11 @@ export interface DiffResponse {
   language: string;
   original: string;
   proposed: string;
-  diff: string; // unified diff text
+  diff: string;
   summary: string;
   approved: boolean;
 }
 
-/** Agent run — audit log of agent invocations. */
 export interface AgentRun {
   id: string;
   mode: AgentMode;
@@ -160,7 +158,6 @@ export interface AgentRun {
   createdAt: string;
 }
 
-/** Agent task — autonomous task with state machine. */
 export interface AgentTask {
   id: string;
   mode: AgentMode;
@@ -177,25 +174,39 @@ export interface AgentTask {
   updatedAt: string;
 }
 
-/** Skill audit — time-series career growth tracking. */
 export interface SkillAudit {
   id: string;
   userId: string;
   skill: string;
   category: "technical" | "soft" | "career";
-  score: number; // 0-100
-  evidence: string; // JSON
+  score: number;
+  evidence: string;
   notes: string;
   auditedAt: string;
 }
 
-/** Vector embedding — user-scoped for RAG. */
 export interface VectorEmbedding {
   id: string;
   userId: string;
   sourceType: "knowledge" | "file" | "conversation";
   sourceId: string;
   content: string;
-  embedding?: number[]; // VECTOR(1536)
+  embedding?: number[];
+  createdAt: string;
+}
+
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  events: string[];
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface WebhookEvent {
+  id: string;
+  event: string;
+  payload: Record<string, unknown>;
+  status: "pending" | "delivered" | "failed";
   createdAt: string;
 }

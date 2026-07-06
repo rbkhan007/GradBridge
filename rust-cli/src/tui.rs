@@ -513,7 +513,7 @@ fn handle_key(app: &mut TuiApp, key: crossterm::event::KeyEvent) -> bool {
             app.agent_override = None;
             return true;
         }
-        (_, KeyCode::Char('?')) => {
+        (_, KeyCode::Char('?')) if app.input.is_empty() => {
             app.show_help = !app.show_help;
             return true;
         }

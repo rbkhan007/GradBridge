@@ -75,16 +75,45 @@ impl RagIndex {
     /// Walk `root` and (re)index every file with a recognized extension.
     /// Returns the number of files indexed. Skips common ignore dirs
     /// (`node_modules`, `.git`, `target`, `dist`, `.next`).
+    /// Only reindexes files whose modification time has changed, so subsequent
+    /// runs are much faster when few files have changed.
     pub async fn reindex(&self, root: &Path) -> Result<usize> {
-        // Clear the index first for a clean rebuild.
-        sqlx::query("DELETE FROM rag_files")
+        // Ensure mtime column exists (schema upgrade for existing DBs).
+        let _ = sqlx::raw_sql("ALTER TABLE rag_files ADD COLUMN mtime TEXT DEFAULT ''")
             .execute(&self.pool)
-            .await?;
+            .await;
 
         let mut count = 0usize;
         let files = collect_files(root);
         for file in files {
-            if let Err(e) = self.index_file(&file).await {
+            let current_mtime = file
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| {
+                    let d: chrono::DateTime<chrono::Utc> = t.into();
+                    d.to_rfc3339()
+                })
+                .unwrap_or_default();
+
+            let rel = file
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| file.to_string_lossy().to_string());
+
+            // Check if already indexed with the same mtime.
+            let indexed: Option<String> = sqlx::query_scalar("SELECT mtime FROM rag_files WHERE path = ?")
+                .bind(&rel)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
+
+            if indexed.as_deref() == Some(current_mtime.as_str()) {
+                continue;
+            }
+
+            if let Err(e) = self.index_file_at(&file, &rel, &current_mtime).await {
                 eprintln!("[rag] failed to index {}: {}", file.display(), e);
             } else {
                 count += 1;
@@ -93,37 +122,31 @@ impl RagIndex {
         Ok(count)
     }
 
-    /// Index a single file: read it, compute a token frequency map, store it.
-    async fn index_file(&self, path: &Path) -> Result<()> {
-        let rel = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string_lossy().to_string());
+    /// Index a single file (used when the caller already knows the rel path + mtime).
+    async fn index_file_at(&self, path: &Path, rel: &str, mtime: &str) -> Result<()> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("read {}", path.display()))?;
         let language = language_for(path);
 
-        // Store the file row.
         sqlx::query(
-            "INSERT OR REPLACE INTO rag_files (path, language, content, indexed_at) \
-             VALUES (?, ?, ?, datetime('now'))",
+            "INSERT OR REPLACE INTO rag_files (path, language, content, indexed_at, mtime) \
+             VALUES (?, ?, ?, datetime('now'), ?)",
         )
-        .bind(rel.as_str())
+        .bind(rel)
         .bind(language)
         .bind(content.as_str())
+        .bind(mtime)
         .execute(&self.pool)
         .await?;
 
-        // Tokenize + store term frequencies.
         let tf = term_frequencies(&content);
-        // Clear old tokens for this file.
         sqlx::query("DELETE FROM rag_tokens WHERE path = ?")
-            .bind(rel.as_str())
+            .bind(rel)
             .execute(&self.pool)
             .await?;
         for (term, count) in tf {
             sqlx::query("INSERT INTO rag_tokens (path, term, count) VALUES (?, ?, ?)")
-                .bind(rel.as_str())
+                .bind(rel)
                 .bind(term.as_str())
                 .bind(count as i64)
                 .execute(&self.pool)
@@ -336,7 +359,8 @@ CREATE TABLE IF NOT EXISTS rag_files (
     path      TEXT PRIMARY KEY,
     language  TEXT NOT NULL DEFAULT 'text',
     content   TEXT NOT NULL,
-    indexed_at TEXT NOT NULL
+    indexed_at TEXT NOT NULL,
+    mtime     TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS rag_tokens (
     path   TEXT NOT NULL,

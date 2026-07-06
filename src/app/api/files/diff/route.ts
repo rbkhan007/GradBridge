@@ -7,7 +7,7 @@ import { AGENTS } from "@/lib/agents";
 import { runCompletion, type ChatTurn } from "@/lib/llm";
 import { diffText } from "@/lib/diff";
 import { toProfile } from "@/lib/serializers";
-import { requireUser, HttpError } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { ensureWorkspace } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -19,8 +19,9 @@ function extractCodeBlock(text: string): string {
   return text;
 }
 
-async function handler(req: Request) {
+export async function POST(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   let body: { filePath?: string; instruction?: string };
   try {
     body = (await req.json()) as { filePath?: string; instruction?: string };
@@ -42,7 +43,6 @@ async function handler(req: Request) {
     );
   }
 
-  // Ensure the user has a workspace, then find their file.
   await ensureWorkspace(user.id);
   const file = await db.projectFile.findFirst({
     where: { userId: user.id, path: filePath },
@@ -92,18 +92,4 @@ is \`${file.language} ${file.path}\`. Do not add commentary outside the block.`;
     summary,
     approved: false,
   });
-}
-
-export async function POST(req: Request) {
-  try {
-    return await handler(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { error: "Diff generation failed", detail: msg },
-      { status: 500 },
-    );
-  }
 }

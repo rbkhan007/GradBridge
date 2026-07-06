@@ -3,10 +3,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { toFile } from "@/lib/serializers";
-import { requireUser, HttpError } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
+import { indexToVectorStore } from "@/lib/rag";
 
-async function handler(req: Request) {
+export async function POST(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   let body: { path?: string; content?: string };
   try {
     body = (await req.json()) as { path?: string; content?: string };
@@ -42,15 +44,6 @@ async function handler(req: Request) {
       indexedAt: new Date(),
     },
   });
+  indexToVectorStore(user.id).catch(() => {});
   return NextResponse.json({ file: toFile(updated) });
-}
-
-export async function POST(req: Request) {
-  try {
-    return await handler(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: "Failed to apply file" }, { status: 500 });
-  }
 }

@@ -3,17 +3,19 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { toFile } from "@/lib/serializers";
-import { requireUser, HttpError } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { ensureWorkspace } from "@/lib/workspace";
 
-async function handleGet(req: Request) {
+export async function GET(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   const files = await ensureWorkspace(user.id);
   return NextResponse.json({ files: files.map(toFile) });
 }
 
-async function handlePost(req: Request) {
+export async function POST(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   let body: { path?: string };
   try {
     body = (await req.json()) as { path?: string };
@@ -31,24 +33,4 @@ async function handlePost(req: Request) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
   return NextResponse.json({ file: toFile(file) });
-}
-
-export async function GET(req: Request) {
-  try {
-    return await handleGet(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: "Failed to load files" }, { status: 500 });
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    return await handlePost(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: "Failed to read file" }, { status: 500 });
-  }
 }

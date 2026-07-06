@@ -1,10 +1,11 @@
 // GET /api/files/commits — list the user's commit history (newest first).
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireUser, HttpError } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 
-async function handler(req: Request) {
+export async function GET(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   const commits = await db.commit.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
@@ -22,14 +23,4 @@ async function handler(req: Request) {
       createdAt: c.createdAt.toISOString(),
     })),
   });
-}
-
-export async function GET(req: Request) {
-  try {
-    return await handler(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: "Failed to load commits" }, { status: 500 });
-  }
 }

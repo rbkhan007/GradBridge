@@ -2,7 +2,7 @@
 // POST /api/memory — upsert the current user's profile (partial updates).
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireUser, HttpError } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { toProfile } from "@/lib/serializers";
 import type { UserProfile } from "@/lib/types";
 
@@ -18,14 +18,16 @@ async function getOrCreateProfile(userId: string) {
   });
 }
 
-async function handleGet(req: Request) {
+export async function GET(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   const p = await getOrCreateProfile(user.id);
   return NextResponse.json({ profile: toProfile(p) });
 }
 
-async function handlePost(req: Request) {
+export async function POST(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   let body: Partial<UserProfile>;
   try {
     body = (await req.json()) as Partial<UserProfile>;
@@ -46,31 +48,10 @@ async function handlePost(req: Request) {
   if (Array.isArray(body.goals))
     data.goals = JSON.stringify(body.goals.slice(0, 20).map(String));
 
-  // Ensure a profile row exists, then update.
   await getOrCreateProfile(user.id);
   const updated = await db.userProfile.update({
     where: { userId: user.id },
     data,
   });
   return NextResponse.json({ profile: toProfile(updated) });
-}
-
-export async function GET(req: Request) {
-  try {
-    return await handleGet(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    return await handlePost(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: "Failed to save profile" }, { status: 500 });
-  }
 }

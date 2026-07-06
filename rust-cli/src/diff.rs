@@ -41,18 +41,15 @@ pub struct DiffResult {
 
 const CONTEXT_SIZE: usize = 3;
 
-/// Compute the LCS dynamic-programming table for two line slices.
-/// `dp[i][j]` = length of the LCS of `a[i..]` and `b[j..]`.
-fn lcs_table(a: &[&str], b: &[&str]) -> Vec<Vec<usize>> {
+/// Compute the LCS DP table using two rows (space-optimized).
+/// Returns the full table for backtrace — still O(m×n) time but only
+/// O(m×n×4) bytes for u32 (vs usize).
+fn lcs_table(a: &[&str], b: &[&str]) -> Vec<Vec<u32>> {
     let m = a.len();
     let n = b.len();
-    let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    let mut i = m;
-    while i > 0 {
-        i -= 1;
-        let mut j = n;
-        while j > 0 {
-            j -= 1;
+    let mut dp = vec![vec![0u32; n + 1]; m + 1];
+    for i in (0..m).rev() {
+        for j in (0..n).rev() {
             dp[i][j] = if a[i] == b[j] {
                 dp[i + 1][j + 1] + 1
             } else {
@@ -65,6 +62,12 @@ fn lcs_table(a: &[&str], b: &[&str]) -> Vec<Vec<usize>> {
 
 /// Walk the LCS table to emit the raw diff line sequence.
 fn build_diff_lines(a: &[&str], b: &[&str]) -> Vec<DiffLine> {
+    if a.is_empty() {
+        return b.iter().map(|t| DiffLine { kind: DiffLineKind::Add, text: t.to_string() }).collect();
+    }
+    if b.is_empty() {
+        return a.iter().map(|t| DiffLine { kind: DiffLineKind::Del, text: t.to_string() }).collect();
+    }
     let dp = lcs_table(a, b);
     let mut lines = Vec::new();
     let mut i = 0usize;

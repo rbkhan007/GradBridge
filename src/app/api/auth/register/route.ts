@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth/server";
 import type { AuthUser } from "@/lib/types";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function POST(req: Request) {
   let body: { name?: string; email?: string; password?: string };
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not create your account. Please try again." }, { status: 500 });
   }
 
-  let user: { id: string; name: string; email: string };
+  let user: { id: string; name: string; email: string; role: string };
   try {
     user = await db.$transaction(async (tx) => {
       const created = await tx.user.create({
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
             },
           },
         },
-        select: { id: true, name: true, email: true },
+        select: { id: true, name: true, email: true, role: true },
       });
       return created;
     });
@@ -88,6 +89,8 @@ export async function POST(req: Request) {
     console.error("[register] DB error:", err);
     return NextResponse.json({ error: "Could not create your account. Please try again." }, { status: 500 });
   }
+
+  dispatchWebhook(neonUserId, "user.registered", { id: neonUserId, email, name }).catch(() => {});
 
   const res = NextResponse.json({ user: user as AuthUser }, { status: 201 });
   return res;

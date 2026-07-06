@@ -26,6 +26,7 @@ model User {
   id           String         @id
   email        String         @unique
   name         String
+  role         String         @default("user") // "user" | "admin" | "moderator"
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
@@ -42,6 +43,8 @@ model User {
   ragFeedback  RagFeedback[]
   vectorEmbeddings VectorEmbedding[]
   skillAudits  SkillAudit[]
+  webhookEndpoints WebhookEndpoint[]
+  webhookEvents    WebhookEvent[]
 }
 
 /// Per-user API keys for LLM providers. 1:1 with User.
@@ -316,4 +319,38 @@ model SkillAudit {
   @@index([userId])
   @@index([skill])
   @@index([auditedAt])
+}
+
+// ─── WEBHOOKS ─────────────────────────────────────────────────
+
+/// A webhook endpoint registered by a user to receive real-time events.
+model WebhookEndpoint {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  events    String   @default("[]") // JSON-encoded string[] of event types
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  eventsLog WebhookEvent[] @relation("WebhookEvents")
+
+  @@index([userId])
+}
+
+/// A webhook delivery event — tracks each dispatch attempt.
+model WebhookEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpointId String
+  endpoint   WebhookEndpoint @relation("WebhookEvents", fields: [endpointId], references: [id], onDelete: Cascade)
+  event      String   // event type name
+  payload    String   // JSON-encoded payload
+  status     String   @default("pending") // "pending" | "delivered" | "failed"
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([endpointId])
+  @@index([status])
 }

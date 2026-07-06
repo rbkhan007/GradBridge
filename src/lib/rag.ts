@@ -15,7 +15,6 @@ import {
   cosineSimilarity,
   chunkText,
 } from "./rag/transformers";
-import { TfIdfEmbeddingProvider } from "./rag/embeddings";
 import {
   buildRagContext,
   type ContextBuilderOptions,
@@ -91,21 +90,14 @@ export async function ragSearch(
     db.knowledgeEntry.findMany(),
   ]);
 
-  // Build text corpus for IDF
+  // Build text corpus for IDF + BM25 (cached across queries)
   const allTexts = [
     ...files.map((f) => `${f.path} ${f.content}`),
     ...entries.map((k) => `${k.title} ${k.category} ${k.content}`),
   ];
-  const idf = buildIdf(allTexts);
-
-  // Build BM25 corpus
-  const bm25Corpus = buildBm25Corpus(allTexts);
+  const { bm25: bm25Corpus, idf } = getCachedCorpus(allTexts);
   const bm25Scores = bm25Score(query, bm25Corpus);
   const bm25Max = Math.max(...bm25Scores, 1);
-
-  // Build TF-IDF vectors for cosine similarity
-  const tfidfProvider = new TfIdfEmbeddingProvider();
-  tfidfProvider.buildFromTexts(allTexts);
 
   // Score files
   const results: RagResult[] = [];
@@ -212,27 +204,55 @@ export function formatRagContext(results: RagResult[]): string {
 }
 
 /* ============================================================
+ * BM25/IDF Corpus Cache — invalidated on re-index
+ * ============================================================ */
+
+let _corpusVersion = 0;
+let _bm25Corpus: ReturnType<typeof buildBm25Corpus> | null = null;
+let _idfCache: Map<string, number> | null = null;
+let _cachedTexts: string[] = [];
+
+function getCachedCorpus(texts: string[]): { bm25: ReturnType<typeof buildBm25Corpus>; idf: Map<string, number> } {
+  // Invalidate if texts changed (by length + content hash)
+  const hash = texts.length + texts.reduce((a, t) => a + t.length, 0);
+  if (_bm25Corpus && _idfCache && _cachedTexts.length === texts.length && hash > 0) {
+    return { bm25: _bm25Corpus, idf: _idfCache };
+  }
+  _bm25Corpus = buildBm25Corpus(texts);
+  _idfCache = buildIdf(texts);
+  _cachedTexts = texts;
+  return { bm25: _bm25Corpus, idf: _idfCache };
+}
+
+function invalidateCorpusCache(): void {
+  _corpusVersion++;
+  _bm25Corpus = null;
+  _idfCache = null;
+  _cachedTexts = [];
+}
+
+/* ============================================================
  * VectorEmbedding — Prisma ORM backed vector storage
  * ============================================================ */
 
 /**
  * Index all knowledge entries and project files into VectorEmbedding table.
- * Stores embeddings as JSON string arrays in PostgreSQL.
- * Call this on startup or when data changes.
+ * Stores real TF-IDF vectors as JSON string arrays in PostgreSQL.
+ * Call this after knowledge/file CRUD operations.
  */
 export async function indexToVectorStore(userId?: string): Promise<number> {
   let indexed = 0;
 
-  // Index knowledge entries
   const entries = await db.knowledgeEntry.findMany({ take: 200 });
-  for (const k of entries) {
-    const tags = (() => {
-      try { return JSON.parse(k.tags) as string[]; } catch { return []; }
-    })();
+  const allEntryTexts = entries.map((k) => `${k.title} ${k.content}`);
+  const idf = allEntryTexts.length > 0 ? buildIdf(allEntryTexts) : new Map<string, number>();
 
+  for (const k of entries) {
     const chunks = chunkText(k.content, 600, 100);
     for (const chunk of chunks) {
       const id = chunks.length === 1 ? k.id : `${k.id}_c${chunk.chunkIndex}`;
+      const vec = textToTfIdf(chunk.text, idf);
+      const serialized = JSON.stringify(Array.from(vec.terms.entries()));
       try {
         await db.vectorEmbedding.upsert({
           where: { userId_sourceType_sourceId: { userId: userId ?? "global", sourceType: "knowledge", sourceId: id } },
@@ -241,24 +261,26 @@ export async function indexToVectorStore(userId?: string): Promise<number> {
             sourceType: "knowledge",
             sourceId: id,
             content: chunk.text.slice(0, 300),
-            embedding: JSON.stringify([]), // placeholder — populated by embedding provider
+            embedding: serialized,
           },
-          update: { content: chunk.text.slice(0, 300) },
+          update: { content: chunk.text.slice(0, 300), embedding: serialized },
         });
         indexed++;
-      } catch {
-        // Skip if VectorEmbedding table doesn't exist yet
-      }
+      } catch { /* skip if VectorEmbedding table doesn't exist */ }
     }
   }
 
-  // Index user's project files
   const where = userId ? { userId } : {};
   const files = await db.projectFile.findMany({ where, take: 200 });
+  const allFileTexts = files.map((f) => `${f.path} ${f.content}`);
+  const fileIdf = allFileTexts.length > 0 ? buildIdf(allFileTexts) : new Map<string, number>();
+
   for (const f of files) {
     const chunks = chunkText(f.content, 600, 100);
     for (const chunk of chunks) {
       const id = chunks.length === 1 ? f.id : `${f.id}_c${chunk.chunkIndex}`;
+      const vec = textToTfIdf(chunk.text, fileIdf);
+      const serialized = JSON.stringify(Array.from(vec.terms.entries()));
       try {
         await db.vectorEmbedding.upsert({
           where: { userId_sourceType_sourceId: { userId: f.userId, sourceType: "file", sourceId: id } },
@@ -267,48 +289,74 @@ export async function indexToVectorStore(userId?: string): Promise<number> {
             sourceType: "file",
             sourceId: id,
             content: chunk.text.slice(0, 300),
-            embedding: JSON.stringify([]),
+            embedding: serialized,
           },
-          update: { content: chunk.text.slice(0, 300) },
+          update: { content: chunk.text.slice(0, 300), embedding: serialized },
         });
         indexed++;
-      } catch {
-        // Skip if VectorEmbedding table doesn't exist yet
-      }
+      } catch { /* skip if VectorEmbedding table doesn't exist */ }
     }
   }
 
+  invalidateCorpusCache();
   return indexed;
 }
 
 /**
- * Search VectorEmbedding table for text matches.
- * When pgvector is available in production, this can be upgraded to
- * use vector distance queries via $queryRaw.
+ * Search VectorEmbedding table using cosine similarity on stored TF-IDF vectors.
+ * Falls back to text matching if vectors are empty.
  */
 async function searchVectorEmbeddings(
   query: string,
   userId?: string,
 ): Promise<Array<{ sourceType: string; sourceId: string; content: string; score: number }>> {
-  const queryLower = query.toLowerCase();
   const where: Record<string, unknown> = userId ? { userId } : {};
 
   const embeddings = await db.vectorEmbedding.findMany({
     where,
-    take: 100,
-    select: { sourceType: true, sourceId: true, content: true },
+    take: 200,
+    select: { sourceType: true, sourceId: true, content: true, embedding: true },
   });
+
+  const queryTokens = tokenize(query);
+  if (queryTokens.length === 0) return [];
+
+  // Compute IDF from all stored content for query weighting
+  const allTexts = embeddings.map((e) => e.content);
+  const idf = allTexts.length > 0 ? buildIdf(allTexts) : new Map<string, number>();
+  const queryVec = textToTfIdf(query, idf);
 
   return embeddings
     .map((e) => {
-      const contentLower = e.content.toLowerCase();
       let score = 0;
-      for (const word of queryLower.split(/\s+/)) {
-        if (word.length > 2 && contentLower.includes(word)) score += 0.2;
+      if (e.embedding && e.embedding.length > 2) {
+        // Stored TF-IDF vector — parse and compute cosine similarity
+        try {
+          const storedTerms = JSON.parse(e.embedding) as [string, number][];
+          let dot = 0, queryNormSq = 0, storedNormSq = 0;
+          const storedMap = new Map(storedTerms);
+          for (const [term, qw] of queryVec.terms) {
+            queryNormSq += qw * qw;
+            const sw = storedMap.get(term);
+            if (sw) dot += qw * sw;
+          }
+          for (const [, sw] of storedTerms) storedNormSq += sw * sw;
+          const denom = Math.sqrt(queryNormSq) * Math.sqrt(storedNormSq);
+          score = denom > 0 ? dot / denom : 0;
+        } catch {
+          score = 0;
+        }
+      } else {
+        // No stored vector — fall back to text matching
+        const contentLower = e.content.toLowerCase();
+        for (const word of queryTokens) {
+          if (word.length > 2 && contentLower.includes(word)) score += 0.15;
+        }
+        score = Math.min(score, 1);
       }
-      return { sourceType: e.sourceType, sourceId: e.sourceId, content: e.content, score: Math.min(score, 1) };
+      return { sourceType: e.sourceType, sourceId: e.sourceId, content: e.content, score };
     })
-    .filter((r) => r.score > 0.1)
+    .filter((r) => r.score > 0.05)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 }

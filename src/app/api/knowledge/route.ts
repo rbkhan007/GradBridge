@@ -1,51 +1,65 @@
-// GET /api/knowledge        — list all knowledge-base entries (auth required).
-// GET /api/knowledge?q=...  — query the knowledge base (RAG-lite).
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { toKnowledge } from "@/lib/serializers";
-import { requireUser, HttpError } from "@/lib/auth";
-
-async function handler(req: Request) {
-  await requireUser(req);
-  const url = new URL(req.url);
-  const q = url.searchParams.get("q")?.trim() ?? "";
-
-  if (!q) {
-    const entries = await db.knowledgeEntry.findMany({
-      orderBy: [{ category: "asc" }, { title: "asc" }],
-      take: 50,
-    });
-    return NextResponse.json({ entries: entries.map(toKnowledge) });
-  }
-
-  const all = await db.knowledgeEntry.findMany({ take: 100 });
-  const ql = q.toLowerCase();
-  const matched = all
-    .filter((k) => {
-      const tags = (() => {
-        try {
-          return JSON.parse(k.tags) as string[];
-        } catch {
-          return [];
-        }
-      })();
-      return (
-        k.title.toLowerCase().includes(ql) ||
-        k.category.toLowerCase().includes(ql) ||
-        k.content.toLowerCase().includes(ql) ||
-        tags.some((t) => t.toLowerCase().includes(ql))
-      );
-    })
-    .slice(0, 20);
-  return NextResponse.json({ entries: matched.map(toKnowledge), query: q });
-}
+import { requireUser } from "@/lib/auth";
+import { authorize } from "@/lib/auth/authorize";
+import { dispatchWebhook } from "@/lib/webhooks";
+import { indexToVectorStore } from "@/lib/rag";
 
 export async function GET(req: Request) {
-  try {
-    return await handler(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: "Failed to load knowledge" }, { status: 500 });
+  const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
+
+  const url = new URL(req.url);
+  const q = url.searchParams.get("q");
+  const category = url.searchParams.get("category");
+
+  const where: any = {};
+  if (category) where.category = category;
+  if (q) {
+    const like = `%${q.toLowerCase()}%`;
+    where.OR = [
+      { title: { contains: q, mode: "insensitive" } },
+      { category: { contains: q, mode: "insensitive" } },
+      { content: { contains: q, mode: "insensitive" } },
+    ];
   }
+
+  const entries = await db.knowledgeEntry.findMany({
+    where,
+    orderBy: [{ category: "asc" }, { title: "asc" }],
+    take: 100,
+  });
+
+  const parsed = entries.map((e) => ({
+    ...e,
+    tags: JSON.parse(e.tags || "[]") as string[],
+  }));
+
+  return NextResponse.json({ entries: parsed });
+}
+
+export async function POST(req: Request) {
+  const user = await authorize(req, "admin", "moderator");
+  if (user instanceof NextResponse) return user;
+
+  const { title, category, content, tags, source }: {
+    title: string; category: string; content: string; tags?: string[]; source?: string;
+  } = await req.json().catch(() => ({}));
+
+  if (!title || !category || !content) {
+    return NextResponse.json({ error: "title, category, and content are required" }, { status: 400 });
+  }
+
+  const validCategories = ["roadmap", "interview", "best-practice", "career", "system-design"];
+  if (!validCategories.includes(category)) {
+    return NextResponse.json({ error: `Category must be one of: ${validCategories.join(", ")}` }, { status: 400 });
+  }
+
+  const entry = await db.knowledgeEntry.create({
+    data: { title, category, content, source: source ?? "GradBridge Knowledge Base", tags: JSON.stringify(tags ?? []) },
+  });
+
+  indexToVectorStore().catch(() => {});
+  dispatchWebhook(user.id, "knowledge.created", { entryId: entry.id, title }).catch(() => {});
+  return NextResponse.json({ entry }, { status: 201 });
 }

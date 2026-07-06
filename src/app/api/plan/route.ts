@@ -6,13 +6,14 @@ import { ragSearch } from "@/lib/rag";
 import { runCompletion, type ChatTurn } from "@/lib/llm";
 import { buildSystemPrompt } from "@/lib/context";
 import { toProfile } from "@/lib/serializers";
-import { requireUser, HttpError } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-async function handler(req: Request) {
+export async function POST(req: Request) {
   const user = await requireUser(req);
+  if (user instanceof NextResponse) return user;
   let body: { goal?: string };
   try {
     body = (await req.json()) as { goal?: string };
@@ -74,18 +75,4 @@ async function handler(req: Request) {
     ragResults,
     tokensUsed: result.tokensUsed,
   });
-}
-
-export async function POST(req: Request) {
-  try {
-    return await handler(req);
-  } catch (err) {
-    if (err instanceof HttpError)
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { error: "Plan agent failed", detail: msg },
-      { status: 500 },
-    );
-  }
 }
