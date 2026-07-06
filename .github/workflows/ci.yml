@@ -65,7 +65,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust-cli
-      - run: cargo check 2>&1 | tee /tmp/cargo_out.txt; exit ${PIPESTATUS[0]}
-      - if: ${{ failure() }}
-        run: echo "CARGO CHECK FAILED"; cat /tmp/cargo_out.txt | grep -E "error\[|error:" | head -20 >> $GITHUB_STEP_SUMMARY
+      - run: set -o pipefail; cargo check 2>&1 | tee /tmp/cargo_out.txt
+      - if: failure()
+        run: echo '# Rust CLI Errors' >> $GITHUB_STEP_SUMMARY; grep -E "error\[|error:" /tmp/cargo_out.txt | head -30 >> $GITHUB_STEP_SUMMARY
       - run: cargo test
