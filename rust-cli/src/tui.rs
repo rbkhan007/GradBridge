@@ -402,7 +402,7 @@ pub async fn run(mut app: TuiApp) -> Result<()> {
 
             // 2. Terminal events (keyboard, resize).
             maybe_event = events.next() => {
-                let Some(event_result) = maybe_event else { break };
+                let Some(event_result) = maybe_event else { break Ok(()) };
                 let event = event_result.context("read terminal event")?;
                 if !handle_event(&mut app, event) {
                     break; // q / Ctrl+C
@@ -748,7 +748,7 @@ fn draw_top_bar(frame: &mut Frame, app: &TuiApp, area: Rect) {
     }
 
     let mut line_spans = vec![title, subtitle, Span::raw("  ")];
-    line_spans.extend(chunks);
+    line_spans.extend(chips);
     let line = Line::from(line_spans);
 
     let block = Block::default()
@@ -877,7 +877,7 @@ fn draw_messages(frame: &mut Frame, app: &TuiApp, area: Rect) {
             lines.push(Line::from(""));
 
             // Body (markdown-rendered).
-            let text = markdown_to_lines(&msg.content, msg.streaming);
+            let text = markdown_to_lines(&msg.content);
             for l in text {
                 lines.push(l);
             }
@@ -1037,7 +1037,7 @@ fn draw_help_overlay(frame: &mut Frame) {
 ///   - `1. ` numbered lists
 ///   - inline `**bold**` and `` `code` `` (markers stripped — full inline
 ///     span styling is left as a TODO)
-fn markdown_to_lines(md: &str, streaming: bool) -> Vec<Line> {
+fn markdown_to_lines(md: &str) -> Vec<Line> {
     let mut out: Vec<Line> = Vec::new();
     let mut in_code = false;
     let mut code_lang: String = String::new();

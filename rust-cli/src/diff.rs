@@ -130,7 +130,7 @@ fn into_hunks(lines: Vec<DiffLine>) -> Vec<Hunk> {
     let mut a_line: usize = 1;
     let mut b_line: usize = 1;
 
-    let mut flush = |current: &mut Vec<DiffLine>, hunks: &mut Vec<Hunk>, a_start: usize, b_start: usize| {
+    let flush = |current: &mut Vec<DiffLine>, hunks: &mut Vec<Hunk>, a_start: usize, b_start: usize| {
         if current.is_empty() {
             return;
         }

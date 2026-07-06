@@ -19,7 +19,7 @@ use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::{agent_definition, resolve_agent, AgentMode};
+use crate::agents::{agent_definition, resolve_agent, AgentId, AgentMode};
 use crate::config::Config;
 use crate::rag;
 
