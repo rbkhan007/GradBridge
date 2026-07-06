@@ -50,12 +50,18 @@ pub struct Config {
     pub ollama_model: String,
 }
 
-/// The authenticated user, mirrored from the web app's `AuthUser` type.
+/// The authenticated user, mirrored from the web app's `SessionUser` type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionUser {
     pub id: String,
     pub name: String,
     pub email: String,
+    #[serde(default = "default_user_role")]
+    pub role: String,
+}
+
+fn default_user_role() -> String {
+    "user".to_string()
 }
 
 fn default_api_base() -> String {

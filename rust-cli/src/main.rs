@@ -301,7 +301,7 @@ async fn cmd_whoami(cfg: &Config) -> Result<()> {
     match api.me().await {
         Ok(user) => {
             println!("{}  {}", "●".green().bold(), user.name.bold());
-            println!("    {}", user.email);
+            println!("    {}  ({})", user.email, user.role);
             Ok(())
         }
         Err(e) => {
