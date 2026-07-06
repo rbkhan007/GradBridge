@@ -17,9 +17,21 @@ export function getAuth() {
   return _auth;
 }
 
-/** Lazy proxy — defers initialization until a property is first accessed. */
+const noopHandler = async () => new Response(null, { status: 503 });
+const handlerResult = { GET: noopHandler, POST: noopHandler, PUT: noopHandler, DELETE: noopHandler, PATCH: noopHandler };
+
+/** Lazy proxy — defers auth initialization until a property is first accessed.
+ *  During `next build` (CI), env vars may not be set, so we return no-op stubs
+ *  to allow module-level evaluation (e.g. `auth.handler()`) without crashing.
+ *  At runtime the server has env vars and works normally. */
 export const auth = new Proxy({} as ReturnType<typeof createNeonAuth>, {
   get(_, prop) {
-    return (getAuth() as any)[prop];
+    try {
+      return (getAuth() as any)[prop];
+    } catch {
+      if (prop === "handler") return () => handlerResult;
+      if (prop === "signUp") return { email: async () => ({ data: null, error: new Error("Auth not configured") }) };
+      return async () => ({ data: null, error: new Error("Auth not configured") });
+    }
   },
 });
