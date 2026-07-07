@@ -74,18 +74,23 @@ export async function POST(req: Request) {
 
   await db.message.create({ data: { conversationId: conversation.id, role: "user", content: message, agentMode: mode } });
 
-  const result = await runCompletion(turns, { retries: 1, userApiKey: userApiKey ?? undefined });
+  try {
+    const result = await runCompletion(turns, { retries: 1, userApiKey: userApiKey ?? undefined });
 
-  const assistantRow = await db.message.create({ data: { conversationId: conversation.id, role: "assistant", content: result.content, agentMode: mode, agentId: agent.id } });
+    const assistantRow = await db.message.create({ data: { conversationId: conversation.id, role: "assistant", content: result.content, agentMode: mode, agentId: agent.id } });
 
-  await db.agentRun.create({ data: { userId: user.id, conversationId: conversation.id, mode, agentId: agent.id, prompt: message, result: result.content, tokensUsed: result.tokensUsed } });
+    await db.agentRun.create({ data: { userId: user.id, conversationId: conversation.id, mode, agentId: agent.id, prompt: message, result: result.content, tokensUsed: result.tokensUsed } });
 
-  if (!userApiKey) {
-    const today = new Date().toISOString().slice(0, 10);
-    await db.dailyUsage.upsert({ where: { userId_date: { userId: user.id, date: today } }, create: { userId: user.id, date: today, count: 1 }, update: { count: { increment: 1 } } });
+    if (!userApiKey) {
+      const today = new Date().toISOString().slice(0, 10);
+      await db.dailyUsage.upsert({ where: { userId_date: { userId: user.id, date: today } }, create: { userId: user.id, date: today, count: 1 }, update: { count: { increment: 1 } } });
+    }
+
+    await db.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+
+    return NextResponse.json({ conversationId: conversation.id, message: toMessage(assistantRow), tokensUsed: result.tokensUsed, provider: result.provider });
+  } catch (error) {
+    console.error("[chat] Completion failed:", error);
+    return NextResponse.json({ error: "LLM completion failed. Please retry." }, { status: 502 });
   }
-
-  await db.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-  return NextResponse.json({ conversationId: conversation.id, message: toMessage(assistantRow), ragResults, tokensUsed: result.tokensUsed, provider: result.provider });
 }

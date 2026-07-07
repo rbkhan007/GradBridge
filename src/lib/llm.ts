@@ -97,7 +97,7 @@ class ZaiProvider implements StreamingProvider {
 
 class OpenRouterProvider implements StreamingProvider {
   name = "openrouter";
-  available = true; // always available (fallback key + user keys)
+  available = true; // set dynamically in buildProviders
   private baseUrl = "https://openrouter.ai/api/v1/chat/completions";
   private model = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-coder";
   private fallbackKey = process.env.OPENROUTER_FALLBACK_KEY ?? "";
@@ -275,7 +275,7 @@ const fallbackProvider = new FallbackProvider();
 export function listProviders(): { name: string; available: boolean; primary: boolean }[] {
   return [
     { name: "zai-glm", available: true, primary: true },
-    { name: "openrouter", available: true, primary: false },
+    { name: "openrouter", available: !!(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_FALLBACK_KEY), primary: false },
     { name: "groq", available: !!process.env.GROQ_API_KEY, primary: false },
     { name: "ollama", available: !!process.env.OLLAMA_BASE_URL, primary: false },
     { name: fallbackProvider.name, available: true, primary: false },
@@ -366,6 +366,7 @@ export async function* streamCompletion(
 function buildProviders(userApiKey?: string): StreamingProvider[] {
   const orProvider = new OpenRouterProvider();
   if (userApiKey) orProvider.setApiKey(userApiKey);
+  orProvider.available = !!(userApiKey || orProvider["fallbackKey"]);
   return [
     new ZaiProvider(),
     orProvider,

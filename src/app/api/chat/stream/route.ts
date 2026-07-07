@@ -80,9 +80,12 @@ export async function POST(req: Request) {
       async start(controller) {
         try {
           const gen = streamCompletion(turns, { userApiKey: userApiKey ?? undefined });
-          for await (const chunk of gen) {
-            fullContent += chunk;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", content: chunk })}\n\n`));
+          for await (const { delta, done } of gen) {
+            if (delta) {
+              fullContent += delta;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", content: delta })}\n\n`));
+            }
+            if (done) break;
           }
         } catch (streamErr) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", error: "Stream failed" })}\n\n`));
@@ -101,6 +104,7 @@ export async function POST(req: Request) {
           await db.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", conversationId: conversation.id, messageId: assistantRow.id })}\n\n`));
         } catch (persistErr) {
+          console.error("[stream] Failed to persist:", persistErr);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", error: "Failed to persist message" })}\n\n`));
         }
         controller.close();

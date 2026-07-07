@@ -16,7 +16,6 @@ export async function GET(req: Request) {
   const where: any = {};
   if (category) where.category = category;
   if (q) {
-    const like = `%${q.toLowerCase()}%`;
     where.OR = [
       { title: { contains: q, mode: "insensitive" } },
       { category: { contains: q, mode: "insensitive" } },
