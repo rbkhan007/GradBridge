@@ -28,6 +28,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
+    stdin_open: true
+    tty: true
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-gradbridge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gradbridge}
@@ -51,6 +53,8 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     restart: unless-stopped
+    stdin_open: true
+    tty: true
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@gradbridge.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
@@ -71,6 +75,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    stdin_open: true
+    tty: true
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
@@ -99,6 +105,8 @@ services:
       NEON_AUTH_BASE_URL: ${NEON_AUTH_BASE_URL:-}
       NEON_AUTH_COOKIE_SECRET: ${NEON_AUTH_COOKIE_SECRET:-change-me}
       NODE_ENV: production
+    stdin_open: true
+    tty: true
     restart: "no"
     networks:
       - gradbridge
@@ -112,6 +120,8 @@ services:
       dockerfile: Dockerfile
       target: runner
     restart: unless-stopped
+    stdin_open: true
+    tty: true
     depends_on:
       postgres:
         condition: service_healthy

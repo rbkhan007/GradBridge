@@ -98,12 +98,12 @@ run_seed() {
         warn "src/lib/seed.ts not found — skipping seed."
         return 0
     fi
-    if command -v tsx >/dev/null 2>&1; then
-        log "Running seed via tsx …"
-        tsx src/lib/seed.ts
-    elif command -v bun >/dev/null 2>&1; then
+    if command -v bun >/dev/null 2>&1; then
         log "Running seed via bun …"
         bun run src/lib/seed.ts
+    elif command -v tsx >/dev/null 2>&1; then
+        log "Running seed via tsx …"
+        tsx src/lib/seed.ts
     else
         warn "Neither tsx nor bun is available — skipping seed."
         return 0

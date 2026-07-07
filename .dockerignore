@@ -37,7 +37,6 @@ download
 Dockerfile
 .dockerignore
 docker-compose.yml
-docker-entrypoint.sh
 
 # --- Editor / OS ---
 .vscode
