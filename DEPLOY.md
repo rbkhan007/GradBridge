@@ -12,18 +12,17 @@ This guide covers deploying GradBridge to **Vercel**, **Railway**, and **Docker 
 
 ## Prerequisites (all platforms)
 
-1. **A GradBridge secret** — generate one:
-   ```bash
-   openssl rand -hex 32
-   ```
-   Set it as `GRADBRIDGE_SECRET` — this signs session JWTs.
+1. **Neon Auth credentials** (for production Vercel/Railway):
+   - `NEON_AUTH_BASE_URL` — your Neon Auth instance URL
+   - `NEON_AUTH_COOKIE_SECRET` — generate one: `openssl rand -hex 32`
+   - `NEXT_PUBLIC_APP_URL` — your production domain
 
-2. **LLM provider keys** (optional — the built-in z-ai GLM provider works without keys):
+2. **LLM provider keys** (optional — the app works without any, with a built-in local responder):
    - `OPENROUTER_API_KEY` — [get one](https://openrouter.ai/keys)
    - `GROQ_API_KEY` — [get one](https://console.groq.com/keys)
    - `OLLAMA_BASE_URL` — only for self-hosted with a local Ollama instance
 
-3. **Database** — GradBridge uses SQLite for dev and Postgres for production. You need a Postgres connection string.
+3. **Database** — PostgreSQL 16 + pgvector (Docker includes this automatically; for Vercel/Railway use Neon or Supabase).
 
 ---
 
@@ -60,7 +59,9 @@ datasource db {
    | Key | Value |
    |-----|-------|
    | `DATABASE_URL` | `postgresql://...` (from Step 1) |
-   | `GRADBRIDGE_SECRET` | your generated secret |
+   | `NEON_AUTH_BASE_URL` | Your Neon Auth instance URL |
+   | `NEON_AUTH_COOKIE_SECRET` | `openssl rand -hex 32` (min 32 chars) |
+   | `NEXT_PUBLIC_APP_URL` | `https://your-domain.vercel.app` |
    | `OPENROUTER_API_KEY` | (optional) |
    | `GROQ_API_KEY` | (optional) |
 
@@ -74,11 +75,15 @@ After the first deploy, run the Prisma migration:
 # Install Vercel CLI
 npm i -g vercel
 
-# Link + run migration
+# Link + pull env vars
 vercel link
 vercel env pull .env.local
-npx prisma db push
-npx bun run src/lib/seed.ts   # seed knowledge base + file templates
+
+# Push schema to database
+npx prisma db push --schema=prisma/schema.prisma
+
+# Seed knowledge base + file templates
+bun run src/lib/seed.ts
 ```
 
 ### Step 5: Custom domain
@@ -105,7 +110,9 @@ Railway hosts both the app and a managed Postgres instance in one platform.
 
 1. Click your web service → **Variables** → add:
    - `DATABASE_URL` → use the variable reference `${{Postgres.DATABASE_URL}}`
-   - `GRADBRIDGE_SECRET` → your generated secret
+   - `NEON_AUTH_BASE_URL` → your Neon Auth instance URL
+   - `NEON_AUTH_COOKIE_SECRET` → `openssl rand -hex 32`
+   - `NEXT_PUBLIC_APP_URL` → your Railway domain
    - `OPENROUTER_API_KEY` → (optional)
    - `GROQ_API_KEY` → (optional)
 
@@ -139,65 +146,92 @@ Railway → your web service → **Settings** → **Networking** → **Generate 
 
 ## Option C: Docker Compose (self-hosted)
 
-The included `docker-compose.yml` runs Postgres + Redis + the web app.
+The included `docker-compose.yml` runs a full production stack: PostgreSQL 16 + pgvector, Redis, pgAdmin, auto-migration, and the Next.js web app.
 
 ### Step 1: Clone + configure
 
 ```bash
-git clone https://github.com/your-org/gradbridge.git
-cd gradbridge
+git clone https://github.com/rbkhan007/GradBridge.git
+cd GradBridge
 
 # Copy the env template
 cp .env.example .env
-
-# Edit .env — set at minimum:
-#   GRADBRIDGE_SECRET=<openssl rand -hex 32>
-#   DATABASE_URL=postgresql://gradbridge:gradbridge@postgres:5432/gradbridge
-#   OPENROUTER_API_KEY=sk-or-... (optional)
-#   GROQ_API_KEY=gsk_... (optional)
 ```
 
-### Step 2: Switch Prisma to Postgres
+The default `.env` works out of the box for local Docker. Key variables:
 
-Update `prisma/schema.prisma`:
-```prisma
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql://gradbridge:gradbridge@localhost:5432/gradbridge` | PostgreSQL connection |
+| `NEON_AUTH_BASE_URL` | *(empty)* | Leave empty for Docker — local auth fallback is used |
+| `NEON_AUTH_COOKIE_SECRET` | *(set in .env)* | Cookie signing secret |
+| `POSTGRES_USER` | `gradbridge` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | `gradbridge` | PostgreSQL password |
+| `POSTGRES_DB` | `gradbridge` | PostgreSQL database name |
 
-### Step 3: Build + start
+### Step 2: Build + start
 
 ```bash
-# Build + start all services (Postgres, Redis, Web)
+# Build + start all services (first build ~3 min)
 docker compose up -d --build
 
-# Run migrations + seed (first time only)
-docker compose exec web npx prisma db push
-docker compose exec web bun run src/lib/seed.ts
-
-# Check logs
-docker compose logs -f web
+# Check all services are running
+docker compose ps
 ```
 
-### Step 4: Access
+**Services:**
+| Service | Port | Purpose |
+|---------|------|---------|
+| `web` | 3000 | Next.js standalone server |
+| `postgres` | 5432 | PostgreSQL 16 + pgvector |
+| `redis` | — | Cache + session backend |
+| `pgadmin` | 5050 | Database management UI |
+| `prisma-migrate` | — | Auto-runs schema push + seed on startup |
 
-The app is available at `http://localhost:3000` (or your server's IP on port 3000).
+The `prisma-migrate` container runs once on startup, pushes the schema, seeds the database, and exits. The `web` container waits for it to complete before starting.
+
+### Step 3: Access
+
+- **Web app**: http://localhost:3000
+- **pgAdmin**: http://localhost:5050 (email: `admin@gradbridge.com`, password: `admin`)
+- **PostgreSQL**: `localhost:5432` (user: `gradbridge`, password: `gradbridge`)
+
+### Step 4: Terminal access
+
+```bash
+# Shell into web container
+docker compose exec web sh
+
+# PostgreSQL shell
+docker compose exec postgres psql -U gradbridge
+
+# Redis CLI
+docker compose exec redis redis-cli
+```
 
 ### Step 5: Reverse proxy (production)
 
-For production, put Caddy or Nginx in front for SSL:
+For production, put Caddy or Nginx in front for SSL, or use a Cloudflare Tunnel (free):
 
-**Caddyfile** (automatic HTTPS):
+**Option A — Caddy (automatic HTTPS):**
 ```
 gradbridge.yourdomain.com {
     reverse_proxy localhost:3000
 }
 ```
 
+**Option B — Cloudflare Tunnel (free, no port forwarding):**
 ```bash
-caddy start
+# 1. Install cloudflared
+# 2. Create tunnel
+cloudflared tunnel create gradbridge
+
+# 3. Add token to .env
+CLOUDFLARE_TUNNEL_TOKEN="your-token-here"
+CLOUDFLARE_DOMAIN="gradbridge.yourdomain.com"
+
+# 4. Start with tunnel profile
+docker compose --profile tunnel up -d
 ```
 
 ---
@@ -206,27 +240,36 @@ caddy start
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | ✅ | `file:./db/custom.db` | SQLite (dev) or Postgres (prod) connection string |
-| `GRADBRIDGE_SECRET` | ✅ | `gradbridge-dev-secret-...` | HMAC-SHA256 signing secret for session JWTs |
-| `OPENROUTER_API_KEY` | ❌ | — | OpenRouter API key (provider rotation) |
+| `DATABASE_URL` | ✅ | `postgresql://gradbridge:gradbridge@localhost:5432/gradbridge` | PostgreSQL connection string |
+| `NEON_AUTH_BASE_URL` | ❌ | *(empty)* | Neon Auth instance URL (production only) |
+| `NEON_AUTH_COOKIE_SECRET` | ✅ | *(must set)* | Cookie signing secret (min 32 chars) |
+| `NEXT_PUBLIC_APP_URL` | ❌ | `http://localhost:3000` | Public URL of the app |
+| `OPENROUTER_API_KEY` | ❌ | — | OpenRouter API key |
 | `OPENROUTER_MODEL` | ❌ | `deepseek/deepseek-coder` | OpenRouter model |
-| `GROQ_API_KEY` | ❌ | — | Groq API key (provider rotation) |
+| `OPENROUTER_FALLBACK_KEY` | ❌ | — | Shared fallback key (5 msg/day free tier) |
+| `GROQ_API_KEY` | ❌ | — | Groq API key |
 | `GROQ_MODEL` | ❌ | `llama-3.3-70b-versatile` | Groq model |
-| `OLLAMA_BASE_URL` | ❌ | `http://localhost:11434` | Ollama daemon URL (local LLM) |
-| `OLLAMA_MODEL` | ❌ | `qwen2.5-coder:7b` | Ollama model |
-| `NODE_ENV` | ❌ | `development` | Set to `production` for prod |
+| `OLLAMA_BASE_URL` | ❌ | — | Ollama daemon URL (local LLM) |
+| `OLLAMA_MODEL` | ❌ | — | Ollama model |
+| `POSTGRES_USER` | ❌ | `gradbridge` | Docker: PostgreSQL username |
+| `POSTGRES_PASSWORD` | ❌ | `gradbridge` | Docker: PostgreSQL password |
+| `POSTGRES_DB` | ❌ | `gradbridge` | Docker: PostgreSQL database |
+| `PGADMIN_EMAIL` | ❌ | `admin@gradbridge.com` | Docker: pgAdmin login email |
+| `PGADMIN_PASSWORD` | ❌ | `admin` | Docker: pgAdmin login password |
+| `CLOUDFLARE_TUNNEL_TOKEN` | ❌ | — | Docker: Cloudflare Tunnel token |
+| `CLOUDFLARE_DOMAIN` | ❌ | — | Docker: Cloudflare Tunnel domain |
 
 ---
 
 ## Post-Deployment Checklist
 
-- [ ] Database migrated (`prisma db push`)
-- [ ] Knowledge base seeded (`bun run src/lib/seed.ts`)
-- [ ] `GRADBRIDGE_SECRET` set to a strong random value
-- [ ] Can register a new account
+- [ ] `NEON_AUTH_COOKIE_SECRET` set to a 32+ char value
+- [ ] Database migrated (`prisma db push` — Docker handles this automatically)
+- [ ] Knowledge base seeded (`bun run db:seed` — Docker handles this automatically)
+- [ ] Can register a new account at `/auth/register`
 - [ ] Can login + see the dashboard
 - [ ] Chat returns a response (LLM working)
-- [ ] Files view shows 6 demo files (workspace auto-cloned)
+- [ ] Files view shows demo files (workspace auto-cloned)
 - [ ] File edit → diff preview → approve → apply works
 - [ ] Git commit works (modified files → commit → statuses reset)
 - [ ] Logout works
@@ -254,6 +297,22 @@ caddy start
 - Ensure Docker has at least 2GB of memory allocated
 - Try `docker compose build --no-cache` to force a clean build
 - Check that `.dockerignore` excludes `node_modules` and `.next`
+
+### Docker: prisma-migrate exits with error
+- Check logs: `docker compose logs prisma-migrate`
+- Common cause: PostgreSQL not ready — the entrypoint waits up to 60s
+- Force restart: `docker compose restart prisma-migrate`
+
+### Docker: web container can't reach database
+- The `web` container uses `postgres:5432` (Docker network DNS), not `localhost:5432`
+- Ensure `DATABASE_URL` uses `@postgres:5432` inside Docker, not `@localhost:5432`
+
+### Terminal access to containers
+```bash
+docker compose exec web sh
+docker compose exec postgres psql -U gradbridge
+docker compose exec redis redis-cli
+```
 
 ---
 

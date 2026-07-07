@@ -127,6 +127,53 @@ The app starts in **local auth fallback** mode — registration, sign-in, and se
 4. You're automatically logged in and land on the dashboard
 5. Start chatting with the AI agent!
 
+### Docker Compose (Self-Hosted)
+
+Full production stack with PostgreSQL 16 + pgvector, Redis, pgAdmin, and auto-migration:
+
+```bash
+# Clone + enter directory
+git clone https://github.com/rbkhan007/GradBridge.git
+cd GradBridge
+
+# Copy env template
+cp .env.example .env
+
+# Start all services (first build takes ~3 min)
+docker compose up -d --build
+
+# App is now running at http://localhost:3000
+# pgAdmin at http://localhost:5050 (admin@gradbridge.com / admin)
+```
+
+**Services included:**
+| Service | Port | Description |
+|---------|------|-------------|
+| `web` | 3000 | Next.js standalone server |
+| `postgres` | 5432 | PostgreSQL 16 + pgvector |
+| `redis` | — | Cache + session backend |
+| `pgadmin` | 5050 | Database management UI |
+| `prisma-migrate` | — | Auto-runs schema push + seed on first start |
+
+**Useful commands:**
+```bash
+docker compose logs -f web              # watch web logs
+docker compose exec web sh              # shell into web container
+docker compose exec postgres psql -U gradbridge  # psql shell
+docker compose exec redis redis-cli     # redis CLI
+docker compose down                     # stop all services
+docker compose down -v                  # stop + delete data (fresh start)
+```
+
+**Cloudflare Tunnel (free public HTTPS):**
+```bash
+# 1. Create tunnel (one-time)
+cloudflared tunnel create gradbridge
+# 2. Copy the token to .env
+# 3. Start with tunnel profile
+docker compose --profile tunnel up -d
+```
+
 ### Production Setup (Vercel + Neon Auth)
 
 For a live deployment, set these environment variables in your Vercel project:
@@ -431,7 +478,7 @@ bun run start            # Start production server
 # Code Quality
 bun run lint             # ESLint check
 bun run typecheck        # TypeScript type check
-bun run test             # Run test suite (68 tests)
+bun run test             # Run test suite
 
 # Database (SQLite - Local Dev)
 bun run db:sqlite        # Push SQLite schema
@@ -443,6 +490,12 @@ bun run db:generate:pg   # Generate Prisma client (PostgreSQL)
 bun run db:migrate       # Create + apply migration
 bun run db:reset         # Reset database
 bun run db:seed          # Seed knowledge base + files
+
+# Docker
+bun run docker:up        # Build + start all services
+bun run docker:down      # Stop all services
+bun run docker:logs      # Watch web logs
+bun run docker:reset     # Fresh start (delete data + rebuild)
 ```
 
 ---
@@ -451,37 +504,38 @@ bun run db:seed          # Seed knowledge base + files
 
 ```env
 # ─── Database ──────────────────────────────────────────────
-# Production: PostgreSQL + pgvector
-DATABASE_URL="postgresql://user:password@host:5432/gradbridge?schema=public"
+# Production / Docker: PostgreSQL + pgvector
+DATABASE_URL="postgresql://gradbridge:gradbridge@localhost:5432/gradbridge?schema=public"
 
 # Local dev: SQLite (uncomment below, comment out PostgreSQL)
 # DATABASE_URL="file:./db/custom.db"
 
 # ─── Neon Auth (required for production) ───────────────────
-# Local dev / CI: leave unset — app falls back to local cookie-based auth
-NEON_AUTH_BASE_URL="https://your-neon-auth-instance.region.neon.tech"
-NEON_AUTH_COOKIE_SECRET="at-least-32-characters-long-secret-key!!"
-NEXT_PUBLIC_APP_URL="https://your-domain.vercel.app"
+# Local dev / Docker: leave unset — app falls back to local cookie-based auth
+NEON_AUTH_BASE_URL=""
+NEON_AUTH_COOKIE_SECRET="generate-a-secret-32-chars-minimum!!"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 
 # ─── LLM Providers (optional — falls back to local responder) ─
-ZAI_API_KEY="your-zai-api-key"
+ZAI_API_KEY=""
+OPENROUTER_API_KEY=""
+OPENROUTER_MODEL="deepseek/deepseek-coder"
+OPENROUTER_FALLBACK_KEY=""
+GROQ_API_KEY=""
+GROQ_MODEL="llama-3.3-70b-versatile"
+OLLAMA_BASE_URL=""
+OLLAMA_MODEL=""
 
-# OpenRouter (provides free tier + user API keys)
-# OPENROUTER_API_KEY="sk-or-v1-..."
-# OPENROUTER_MODEL="deepseek/deepseek-coder"
-# OPENROUTER_FALLBACK_KEY="sk-or-v1-..."  # shared free tier key (5 msg/day)
+# ─── Docker Compose (override defaults) ──────────────────
+POSTGRES_USER=gradbridge
+POSTGRES_PASSWORD=gradbridge
+POSTGRES_DB=gradbridge
+PGADMIN_EMAIL=admin@gradbridge.com
+PGADMIN_PASSWORD=admin
 
-# Groq (fast inference)
-# GROQ_API_KEY="gsk_..."
-# GROQ_MODEL="llama-3.3-70b-versatile"
-
-# Ollama (local models)
-# OLLAMA_BASE_URL="http://localhost:11434"
-# OLLAMA_MODEL="qwen2.5-coder:7b"
-
-# ─── Security ──────────────────────────────────────────────
-# Session secret (auto-generated if not set — REQUIRED for production)
-# GRADBRIDGE_SECRET="your-secret-key"
+# ─── Cloudflare Tunnel (optional — free public HTTPS) ──────
+# CLOUDFLARE_TUNNEL_TOKEN=""
+# CLOUDFLARE_DOMAIN="gradbridge.yourdomain.com"
 ```
 
 ---
@@ -500,13 +554,14 @@ ZAI_API_KEY="your-zai-api-key"
    - `ZAI_API_KEY` (or other LLM provider key)
 4. Deploy — the build command in `vercel.json` handles Prisma generation automatically
 
-### Docker Compose
+### Docker Compose (self-hosted)
 
 ```bash
-docker compose up -d
+cp .env.example .env              # configure env vars
+docker compose up -d --build      # build + start all services
 ```
 
-Includes PostgreSQL 16 + pgvector + the web service.
+Includes PostgreSQL 16 + pgvector + Redis + pgAdmin + auto-migration. See [DEPLOY.md](DEPLOY.md#option-c-docker-compose-self-hosted) for full instructions.
 
 ### Railway
 
